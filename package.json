@@ -1,0 +1,28 @@
+{
+  "name": "recoverai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Revenue recovery foundation for the Razorpay Buildathon 2026.",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "nodemon backend/src/server.js",
+    "test": "vitest run",
+    "db:migrate": "node backend/src/db/migrate.js",
+    "simulate": "node simulator/run.js",
+    "frontend": "pnpm --dir frontend dev",
+    "frontend:build": "pnpm --dir frontend build"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "morgan": "^1.12.0",
+    "pg": "^8.23.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.11"
+  }
+}
