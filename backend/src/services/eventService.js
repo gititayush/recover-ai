@@ -1,7 +1,9 @@
 const { assessRisk } = require('../risk/detector');
 
 async function processEvent(repository, event) {
-  const storedEvent = await repository.createEvent({ ...event, rawPayload: event });
+  const rawPayload = event.rawPayload || event;
+  const { rawPayload: ignoredRawPayload, ...normalizedEvent } = event;
+  const storedEvent = await repository.createEvent({ ...normalizedEvent, rawPayload });
   if (!storedEvent) return { duplicate: true };
 
   const eventHistory = await repository.getEventsForPayment(event.paymentId);
@@ -20,7 +22,17 @@ async function processEvent(repository, event) {
     return { duplicate: false, recoveryCase: updated, suppressed: assessment.outcome === 'REFUNDED' };
   }
 
-  if (!assessment.actionable) return { duplicate: false, recoveryCase: existingCase, suppressed: false };
+  if (!assessment.actionable) {
+    if (existingCase && assessment.terminalAlreadyKnown) {
+      await repository.addAudit(existingCase.id, 'EVENT_RECEIVED', `Received ${event.eventType} after a terminal payment event; no recovery state was reopened`, { eventId: event.eventId, ignored: true });
+    }
+    return { duplicate: false, recoveryCase: existingCase, suppressed: false, ignored: assessment.terminalAlreadyKnown || false };
+  }
+
+  if (existingCase && ['RESOLVED', 'SUPPRESSED'].includes(existingCase.riskStatus)) {
+    await repository.addAudit(existingCase.id, 'EVENT_RECEIVED', `Received ${event.eventType} after terminal case state; no recovery state was reopened`, { eventId: event.eventId, ignored: true });
+    return { duplicate: false, recoveryCase: existingCase, suppressed: existingCase.riskStatus === 'SUPPRESSED', ignored: true };
+  }
 
   if (!existingCase) {
     const recoveryCase = await repository.createCase({

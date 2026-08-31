@@ -16,6 +16,21 @@ CREATE TABLE IF NOT EXISTS revenue_events (
 
 CREATE INDEX IF NOT EXISTS revenue_events_payment_id_idx ON revenue_events (payment_id, occurred_at);
 
+CREATE TABLE IF NOT EXISTS provider_webhook_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider TEXT NOT NULL,
+  provider_event_id TEXT NOT NULL,
+  event_type TEXT,
+  raw_payload TEXT NOT NULL,
+  signature_verified BOOLEAN NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processing_status TEXT NOT NULL CHECK (processing_status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'FAILED')),
+  processing_error TEXT,
+  CONSTRAINT provider_webhook_events_provider_event_unique UNIQUE (provider, provider_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS provider_webhook_events_received_at_idx ON provider_webhook_events (received_at DESC);
+
 CREATE TABLE IF NOT EXISTS recovery_cases (
   id BIGSERIAL PRIMARY KEY,
   payment_id TEXT NOT NULL UNIQUE,

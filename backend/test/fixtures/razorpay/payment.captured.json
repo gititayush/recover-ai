@@ -1,0 +1,1 @@
+{"entity":"event","account_id":"acc_test_recoverai","event":"payment.captured","contains":["payment"],"payload":{"payment":{"entity":{"id":"pay_webhook_failed_001","entity":"payment","amount":499900,"currency":"INR","status":"captured","order_id":"order_webhook_001","customer_id":"cust_webhook_001","created_at":1788160920}}}}

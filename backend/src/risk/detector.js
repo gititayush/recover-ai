@@ -7,6 +7,10 @@ function assessRisk(event, eventHistory) {
 
   if (event.eventType !== 'payment.failed') return { terminal: false, actionable: false };
 
+  if (eventHistory.some((item) => terminalEventTypes.has(item.eventType))) {
+    return { terminal: false, actionable: false, terminalAlreadyKnown: true };
+  }
+
   const failureCount = eventHistory.filter((item) => item.eventType === 'payment.failed').length;
   return {
     terminal: false,

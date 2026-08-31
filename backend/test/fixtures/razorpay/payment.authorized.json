@@ -1,0 +1,1 @@
+{"entity":"event","account_id":"acc_test_recoverai","event":"payment.authorized","contains":["payment"],"payload":{"payment":{"entity":{"id":"pay_webhook_authorized_001","entity":"payment","amount":120000,"currency":"INR","status":"authorized","order_id":"order_webhook_002","customer_id":"cust_webhook_002","created_at":1788160860}}}}

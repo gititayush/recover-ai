@@ -3,7 +3,7 @@ const { processEvent } = require('../services/eventService');
 
 const eventSchema = z.object({
   eventId: z.string().trim().min(1).max(128),
-  eventType: z.enum(['payment.failed', 'payment.captured', 'payment.succeeded', 'order.paid', 'payment.refunded']),
+  eventType: z.enum(['payment.failed', 'payment.authorized', 'payment.captured', 'payment.succeeded', 'order.paid', 'payment.refunded']),
   paymentId: z.string().trim().min(1).max(128),
   orderId: z.string().trim().min(1).max(128).nullable().optional(),
   amount: z.number().int().nonnegative(),

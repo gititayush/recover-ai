@@ -3,11 +3,13 @@ const cors = require('cors');
 const morgan = require('morgan');
 const { createEventRouter } = require('./routes/events');
 const { createCaseRouter } = require('./routes/cases');
+const { createRazorpayWebhookRouter } = require('./routes/razorpayWebhooks');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 function createApp(repository) {
   const app = express();
   app.use(cors());
+  app.use('/api/webhooks/razorpay', express.raw({ type: 'application/json', limit: '100kb' }), createRazorpayWebhookRouter(repository));
   app.use(express.json({ limit: '100kb' }));
   app.use(morgan('tiny'));
   app.get('/health', (request, response) => response.json({ status: 'ok' }));

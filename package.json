@@ -9,6 +9,7 @@
     "test": "vitest run",
     "db:migrate": "node backend/src/db/migrate.js",
     "simulate": "node simulator/run.js",
+    "replay:razorpay": "node simulator/replayRazorpayFixtures.js",
     "frontend": "pnpm --dir frontend dev",
     "frontend:build": "pnpm --dir frontend build"
   },

@@ -1,10 +1,12 @@
 class InMemoryRecoveryRepository {
   constructor() {
     this.events = [];
+    this.providerWebhookEvents = [];
     this.cases = [];
     this.audits = [];
     this.nextCaseId = 1;
     this.nextAuditId = 1;
+    this.nextProviderWebhookEventId = 1;
   }
 
   async createEvent(event) {
@@ -12,6 +14,23 @@ class InMemoryRecoveryRepository {
     const stored = { ...event, receivedAt: new Date().toISOString() };
     this.events.push(stored);
     return stored;
+  }
+
+  async createProviderWebhookEvent(data) {
+    if (this.providerWebhookEvents.some((event) => event.provider === data.provider && event.providerEventId === data.providerEventId)) return null;
+    const event = { id: this.nextProviderWebhookEventId++, receivedAt: new Date().toISOString(), ...data };
+    this.providerWebhookEvents.push(event);
+    return event;
+  }
+
+  async updateProviderWebhookEvent(id, changes) {
+    const event = this.providerWebhookEvents.find((item) => item.id === id);
+    Object.assign(event, changes);
+    return event;
+  }
+
+  async withTransaction(callback) {
+    return callback(this);
   }
 
   async getEventsForPayment(paymentId) {

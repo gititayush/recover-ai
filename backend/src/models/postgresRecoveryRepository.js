@@ -36,6 +36,41 @@ class PostgresRecoveryRepository {
     return result.rows[0] ? mapEvent(result.rows[0]) : null;
   }
 
+  async createProviderWebhookEvent(data) {
+    const result = await this.pool.query(
+      `INSERT INTO provider_webhook_events (provider, provider_event_id, event_type, raw_payload, signature_verified, processing_status)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider, provider_event_id) DO NOTHING RETURNING *`,
+      [data.provider, data.providerEventId, data.eventType, data.rawPayload, data.signatureVerified, data.processingStatus]
+    );
+    if (!result.rows[0]) return null;
+    const row = result.rows[0];
+    return { id: Number(row.id), provider: row.provider, providerEventId: row.provider_event_id, eventType: row.event_type, rawPayload: row.raw_payload, signatureVerified: row.signature_verified, receivedAt: row.received_at, processingStatus: row.processing_status, processingError: row.processing_error };
+  }
+
+  async updateProviderWebhookEvent(id, changes) {
+    const result = await this.pool.query(
+      `UPDATE provider_webhook_events SET processing_status = $2, processing_error = $3 WHERE id = $1 RETURNING *`,
+      [id, changes.processingStatus, changes.processingError || null]
+    );
+    const row = result.rows[0];
+    return { id: Number(row.id), provider: row.provider, providerEventId: row.provider_event_id, eventType: row.event_type, rawPayload: row.raw_payload, signatureVerified: row.signature_verified, receivedAt: row.received_at, processingStatus: row.processing_status, processingError: row.processing_error };
+  }
+
+  async withTransaction(callback) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await callback(new PostgresRecoveryRepository(client));
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async getEventsForPayment(paymentId) {
     const result = await this.pool.query('SELECT * FROM revenue_events WHERE payment_id = $1 ORDER BY occurred_at ASC', [paymentId]);
     return result.rows.map(mapEvent);
