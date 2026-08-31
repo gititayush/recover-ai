@@ -150,7 +150,7 @@ describe('AI diagnosis and intervention proposal layer', () => {
     await seedRecoverableCase(repository);
     const response = await request(appWithProvider(repository, mockProvider(validProposal()))).post('/api/cases/1/diagnosis').expect(201);
     expect(response.body.diagnosis).not.toHaveProperty('execution');
-    expect(repository).not.toHaveProperty('actions');
+    expect(repository.actions).toHaveLength(0);
   });
 
   it('calls OpenAiCompatibleProvider and parses valid JSON response content', async () => {

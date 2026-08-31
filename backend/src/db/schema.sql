@@ -68,6 +68,30 @@ CREATE TABLE IF NOT EXISTS ai_diagnoses (
 
 CREATE INDEX IF NOT EXISTS ai_diagnoses_created_at_idx ON ai_diagnoses (created_at DESC);
 
+CREATE TABLE IF NOT EXISTS recovery_actions (
+  id BIGSERIAL PRIMARY KEY,
+  recovery_case_id BIGINT NOT NULL REFERENCES recovery_cases(id) ON DELETE CASCADE,
+  action_type TEXT NOT NULL CHECK (action_type IN ('CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION')),
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'EXECUTING', 'EXECUTED', 'FAILED', 'BLOCKED', 'REVIEW_REQUIRED', 'SUPERSEDED')),
+  policy_decision TEXT NOT NULL CHECK (policy_decision IN ('ALLOW', 'REVIEW', 'BLOCK')),
+  policy_version TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_action_id TEXT,
+  payment_link_url TEXT,
+  amount BIGINT NOT NULL CHECK (amount >= 0),
+  currency CHAR(3) NOT NULL,
+  request_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  response_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  failure_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS recovery_actions_case_id_idx ON recovery_actions (recovery_case_id, created_at);
+CREATE INDEX IF NOT EXISTS recovery_actions_status_idx ON recovery_actions (status);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id BIGSERIAL PRIMARY KEY,
   recovery_case_id BIGINT NOT NULL REFERENCES recovery_cases(id) ON DELETE CASCADE,
@@ -78,6 +102,12 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 
 ALTER TABLE audit_events DROP CONSTRAINT IF EXISTS audit_events_event_type_check;
-ALTER TABLE audit_events ADD CONSTRAINT audit_events_event_type_check CHECK (event_type IN ('EVENT_RECEIVED', 'RISK_DETECTED', 'CASE_CREATED', 'CASE_UPDATED', 'AI_DIAGNOSIS'));
+ALTER TABLE audit_events ADD CONSTRAINT audit_events_event_type_check CHECK (
+  event_type IN (
+    'EVENT_RECEIVED', 'RISK_DETECTED', 'CASE_CREATED', 'CASE_UPDATED', 'AI_DIAGNOSIS',
+    'POLICY_EVALUATED', 'ACTION_APPROVED', 'ACTION_BLOCKED', 'ACTION_REVIEW_REQUIRED',
+    'ACTION_EXECUTION_STARTED', 'ACTION_EXECUTED', 'ACTION_EXECUTION_FAILED'
+  )
+);
 
 CREATE INDEX IF NOT EXISTS audit_events_case_id_idx ON audit_events (recovery_case_id, created_at);

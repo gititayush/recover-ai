@@ -1,63 +1,98 @@
-# RecoverAI architecture — milestones 1, 2, and 3
+# RecoverAI Architecture — Milestones 1 to 4
 
 ```mermaid
 flowchart TD
-  R[Razorpay Test Mode webhook] --> B[Exact raw-body capture]
-  B --> H[HMAC-SHA256 verification]
-  H --> D[Provider-event ID deduplication]
-  D --> N[Payload normalization]
-  N --> E[Canonical POST /api/events service]
-  S[Local simulator / internal normalized event] --> E
-  E --> RD[Deterministic risk detector]
-  RD --> C[RecoveryCase + append-only audit trail]
-  C --> UI[REST case APIs and React dashboard]
-  C --> CT[Minimized case context]
-  CT --> AI[AI provider or deterministic development fallback]
-  AI --> V[Strict schema and evidence validation]
-  V --> IE[Deterministic intervention evaluation]
-  IE --> D[Persisted AI diagnosis + AI_DIAGNOSIS audit]
-  D --> UI
+  R[Razorpay Test Mode Webhook] --> B[Exact Raw-Body Capture]
+  B --> H[HMAC-SHA256 Verification]
+  H --> D[Provider Event ID Deduplication]
+  D --> N[Payload Normalization]
+  N --> E[Canonical POST /api/events Service]
+  S[Local Simulator] --> E
+  E --> RD[Deterministic Risk Detector]
+  RD --> C[RecoveryCase + Audit Trail]
+  C --> CT[Minimized Case Context]
+  CT --> AI[AI Provider / Development Fallback]
+  AI --> V[Strict Schema & Evidence Validation]
+  V --> DP[Persisted AI Diagnosis Proposal]
+  DP --> PE[Deterministic Policy Engine]
+  PE -->|ALLOW| EX[Bounded Recovery Executor]
+  PE -->|REVIEW / BLOCK| AD[Audit Trail & Review Status]
+  EX -->|POST /v1/payment_links| RZP[Razorpay Test Mode API]
+  RZP -->|Payment Link Created| RA[recovery_actions Table + ACTION_EXECUTED Audit]
+  RA --> UI[React Operations Dashboard]
+  RZP -.->|Future Payment Event| REC[Outcome Reconciliation & Money Recovered - Next Milestone]
 ```
 
-## Current flow
+## System Overview
 
-`POST /api/events` is the canonical normalized-event processing boundary. It stores the event, applies the shared deterministic detector, creates or updates a `RecoveryCase`, and appends audits. Razorpay is an event source; it does not have a separate risk detector or case engine.
+RecoverAI is structured into strictly separated, bounded layers:
 
-The Razorpay adapter at `POST /api/webhooks/razorpay` is registered before Express JSON parsing with `express.raw()`. It verifies the exact received bytes with `crypto.createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)` and a constant-time comparison against `X-Razorpay-Signature`. The body is parsed only after authentication. Missing or invalid signatures are rejected before raw-event persistence and business processing; secrets and raw sensitive payloads are not logged.
+1. **Event Ingestion & Normalization**: Authenticates signed Razorpay webhooks (HMAC-SHA256), deduplicates provider event IDs, stores raw payloads, and normalizes events into canonical format.
+2. **Risk Detector & Recovery Cases**: Analyzes normalized events, calculates risk levels (`LOW`, `MEDIUM`, `HIGH`), creates or updates `RecoveryCase` records, and maintains an append-only audit log.
+3. **AI Diagnosis Proposal Layer (Advisory)**: Receives a minimized context (excluding secrets, raw bodies, and PII), generates structured diagnosis proposals (`CREATE_PAYMENT_LINK`, `REQUEST_MANUAL_REVIEW`, `NO_ACTION`), and enforces strict evidence grounding.
+4. **Deterministic Policy Engine (Authoritative)**: Evaluates AI proposals against 12 explicit, reproducible guardrail rules before authorizing any execution.
+5. **Bounded Recovery Executor**: Performs authorized recovery actions against Razorpay Test Mode APIs (`CREATE_PAYMENT_LINK`).
+6. **Outcome Reconciliation (Deferred)**: Reconciles executed recovery actions against subsequent payment completion events to attribute actual recovered revenue.
 
-An authenticated delivery requires `x-razorpay-event-id`. The `provider_webhook_events` table has a unique `(provider, provider_event_id)` constraint, preserving the exact UTF-8 raw payload, event type, signature-verification result, received time, processing status, and processing error. The normal adapter path writes `PROCESSING`, runs the canonical event service, and marks it `PROCESSED` in one PostgreSQL transaction. A crash rolls the transaction back, so a provider retry can safely process once. Authenticated malformed/unsupported payloads are retained as `FAILED`; invalid unauthenticated requests are deliberately not persisted.
+---
 
-Supported event types are `payment.failed`, `payment.authorized`, `payment.captured`, and `order.paid`. The normalizer extracts only supplied payment/order entity fields: payment ID, order ID, amount, currency, payment status, failure information, customer/reference, and provider timestamp. Missing required canonical fields cause a malformed-payload result rather than invented data.
+## Authority & Execution Model
 
-`payment.failed` creates or escalates a recovery case. `payment.captured` and `order.paid` resolve an existing case. Once a terminal payment event has been recorded for a payment, a later-delivered `payment.failed` is stored but cannot create or reopen a case. This prevents arrival order from overriding a known terminal provider state.
-
-The React dashboard reads the actual case APIs and calculates its totals from returned cases. The Node simulator submits fixed scenarios; it does not generate random or dashboard-only data.
-
-## AI diagnosis proposals
-
-`POST /api/cases/:id/diagnosis` is explicit; no background or list-query AI call exists. It builds a minimized deterministic context from the case and normalized events. Context includes amount, currency, case/risk status, latest payment/order state, recorded failure reason, failure count, elapsed failure time, and five recent normalized event summaries. It excludes raw payloads, secrets, credentials, and customer references.
-
-The provider adapter is replaceable. With `AI_API_KEY`, the included OpenAI-compatible adapter calls the configured provider/model; without a key, the deterministic development fallback is used and persisted as `development_fallback`. The fallback exists for reproducible development only and does not represent measured AI performance.
-
-Provider output must validate against a strict JSON schema: diagnosis cause, numeric confidence, exact context-grounded evidence, and a limited proposed action (`CREATE_PAYMENT_LINK`, `REQUEST_MANUAL_REVIEW`, or `NO_ACTION`). Invalid/malformed output, unknown actions, missing evidence, and invented evidence are rejected. A versioned prompt (`recoverai-diagnosis-v1`) states that the model cannot execute money movement.
-
-The application separately evaluates all three conceptual interventions using `recovery-heuristic-v1`:
+The system enforces a strict non-negotiable authority model:
 
 ```text
-estimated recovery value = estimated recovery probability × recoverable amount
-                           − intervention cost − estimated friction
+AI (Advisory Recommendation)
+  ↓
+Policy Engine (Authoritative Decision)
+  ↓ (ALLOW)
+Executor (Bounded Financial Execution)
+  ↓
+Razorpay Infrastructure (External Payment System)
+  ↓
+Outcome Reconciliation (Future Milestone)
 ```
 
-These values are transparent heuristic assumptions, not learned probabilities or claimed results. Low confidence deterministically selects manual review. Resolved, suppressed, captured, paid, or refunded cases receive persisted `NO_ACTION` from a terminal safety path. The accepted decision is stored once per case in `ai_diagnoses`; repeated requests return the cached decision and do not append another audit event.
+- **AI cannot execute**: The AI layer produces structured proposals only. It has no network client, credentials, or authority to interact with payment gateways.
+- **Policy Engine is authoritative**: No controller or endpoint may invoke the executor without a server-side `ALLOW` decision from `evaluatePolicy()`.
+- **Executor is isolated**: Only `backend/src/actions/paymentLinkExecutor.js` and `backend/src/services/razorpayClient.js` can call the Razorpay API.
 
-AI proposes. Deterministic application logic evaluates. Policy will later authorize. The executor will later perform the bounded action.
+---
 
-## Local fixture replay
+## Policy Engine Guardrails (`recoverai-policy-v1`)
 
-`pnpm replay:razorpay` signs fixture bytes in `backend/test/fixtures/razorpay` with the configured webhook secret and sends them to the HTTP webhook route. This exercises the same verification, idempotency, normalization, transaction, and canonical processing path used by real delivery. The fixtures are deterministic Razorpay-shaped test data, not live Razorpay payload captures.
+The Policy Engine (`backend/src/policy/policyEngine.js`) evaluates 12 deterministic rules for every recovery action request:
 
-## Deferred layers
+| Rule | Name | Condition for BLOCK / REVIEW |
+|---|---|---|
+| 1 | `terminal_payment` | BLOCK if payment status is `captured`, `paid`, or `refunded`, or `order.status` is `paid`. |
+| 2 | `case_status` | BLOCK if case status is `RESOLVED` or `SUPPRESSED`. |
+| 3 | `action_allowlist` | BLOCK if action is not `CREATE_PAYMENT_LINK`; REVIEW if action is `REQUEST_MANUAL_REVIEW`. |
+| 4 | `confidence_threshold` | REVIEW if AI confidence $< 0.65$. |
+| 5 | `max_attempts` | REVIEW if automated recovery attempts $\ge 2$. |
+| 6 | `duplicate_action` | BLOCK if an active or executed recovery action already exists for the case. |
+| 7 | `amount_integrity` | BLOCK if amount $\le 0$ or invalid. |
+| 8 | `high_value_escalation` | REVIEW if amount $> \text{₹}25,000$ ($2,500,000$ paise). |
+| 9 | `cooldown_period` | REVIEW if elapsed time since previous attempt $< 30$ minutes. |
+| 10 | `context_integrity` | BLOCK if required case fields (`paymentId`, `amount`, `currency`) are missing. |
+| 11 | `test_mode_verification` | BLOCK if application is not configured for Razorpay Test Mode (`rzp_test_...`). |
+| 12 | `resolved_outcome_check` | BLOCK if payment outcome is resolved or refunded in case history. |
 
-In Milestone 3, the AI layer generates and validates structured diagnosis proposals. It does not perform money movement or execution.
+Decision Precedence: `BLOCK` $\succ$ `REVIEW` $\succ$ `ALLOW`.
 
-The deterministic financial-action policy layer and bounded action executors are deferred to future milestones. No payment link generation execution, capture execution, autonomous retries, customer messages, refunds, discounts, or other money movement exists in this milestone.
+---
+
+## Bounded Recovery Executor & Idempotency
+
+The executor (`backend/src/actions/paymentLinkExecutor.js`) manages the execution lifecycle:
+
+- **Action Lifecycle States**: `PENDING` $\rightarrow$ `APPROVED` $\rightarrow$ `EXECUTING` $\rightarrow$ `EXECUTED` / `FAILED` / `BLOCKED` / `REVIEW_REQUIRED`.
+- **Deterministic Idempotency Key**: Generated as `razorpay_case_{caseId}_plink_v{attempt}`. Unique constraint on `recovery_actions.idempotency_key` prevents duplicate link creation at database and application levels.
+- **Payment Link API**: Calls Razorpay's `POST /v1/payment_links` via HTTP Basic Auth (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`).
+- **Persistence**: Persists `provider_action_id` (Payment Link ID) and `payment_link_url` into PostgreSQL table `recovery_actions`.
+
+---
+
+## Stopped & Deferred Layers
+
+- **Payment Link Creation $\neq$ Money Recovered**: Creating a Payment Link transitions action status to `ACTION_EXECUTED`. It does **NOT** count as recovered revenue until a subsequent `payment.captured` or `order.paid` event is received and reconciled.
+- **Deferred Milestones**: Automated retries, customer SMS/email messaging, refunds, discounts, subscriptions, multi-action orchestration, and batch statistical reconciliation are deferred to future milestones.

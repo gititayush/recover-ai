@@ -5,10 +5,12 @@ class InMemoryRecoveryRepository {
     this.cases = [];
     this.audits = [];
     this.aiDiagnoses = [];
+    this.actions = [];
     this.nextCaseId = 1;
     this.nextAuditId = 1;
     this.nextProviderWebhookEventId = 1;
     this.nextAiDiagnosisId = 1;
+    this.nextActionId = 1;
   }
 
   async createEvent(event) {
@@ -79,6 +81,45 @@ class InMemoryRecoveryRepository {
     return diagnosis;
   }
 
+  async createAction(data) {
+    const existing = this.actions.find((a) => a.idempotencyKey === data.idempotencyKey);
+    if (existing) return existing;
+    const action = {
+      id: this.nextActionId++,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      providerActionId: null,
+      paymentLinkUrl: null,
+      completedAt: null,
+      failureReason: null,
+      requestMetadata: {},
+      responseMetadata: {},
+      ...data
+    };
+    this.actions.push(action);
+    return action;
+  }
+
+  async updateAction(id, changes) {
+    const action = this.actions.find((item) => item.id === Number(id));
+    if (!action) return null;
+    Object.assign(action, changes, { updatedAt: new Date().toISOString() });
+    return action;
+  }
+
+  async findActionByIdempotencyKey(key) {
+    return this.actions.find((a) => a.idempotencyKey === key) || null;
+  }
+
+  async findActionsByCaseId(recoveryCaseId) {
+    return this.actions.filter((a) => a.recoveryCaseId === Number(recoveryCaseId)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }
+
+  async getLatestActionForCase(recoveryCaseId) {
+    const actions = await this.findActionsByCaseId(recoveryCaseId);
+    return actions.at(-1) || null;
+  }
+
   async listCases() {
     return [...this.cases].sort((a, b) => new Date(b.lastEventAt) - new Date(a.lastEventAt));
   }
@@ -89,7 +130,8 @@ class InMemoryRecoveryRepository {
     return {
       recoveryCase,
       events: await this.getEventsForPayment(recoveryCase.paymentId),
-      auditEvents: this.audits.filter((audit) => audit.recoveryCaseId === recoveryCase.id).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      auditEvents: this.audits.filter((audit) => audit.recoveryCaseId === recoveryCase.id).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+      actions: await this.findActionsByCaseId(recoveryCase.id)
     };
   }
 }
