@@ -11,7 +11,8 @@
     "simulate": "node simulator/run.js",
     "replay:razorpay": "node simulator/replayRazorpayFixtures.js",
     "frontend": "pnpm --dir frontend dev",
-    "frontend:build": "pnpm --dir frontend build"
+    "frontend:build": "pnpm --dir frontend build",
+    "evaluate": "python evaluation/benchmark_runner.py --seed 42 --cases-per-playbook 80"
   },
   "dependencies": {
     "cors": "^2.8.6",

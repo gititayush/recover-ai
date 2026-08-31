@@ -15,6 +15,34 @@ function evaluateCandidates(context) {
     { action: 'REQUEST_MANUAL_REVIEW', estimatedProbability: Math.max(0, probability - 0.1), interventionCost: 2500, estimatedFriction: Math.round(context.amount * 0.1) },
     { action: 'NO_ACTION', estimatedProbability: 0, interventionCost: 0, estimatedFriction: 0 }
   ];
+
+  if (context.playbook === 'failed_subscription' || context.playbook === 'mandate_retry') {
+    definitions.push({
+      action: 'SCHEDULE_RETRY_WINDOW',
+      estimatedProbability: Math.min(0.65, probability + 0.05),
+      interventionCost: 500,
+      estimatedFriction: Math.round(context.amount * 0.02)
+    });
+  }
+
+  if (context.playbook === 'hinglish_voice_recovery') {
+    definitions.push({
+      action: 'DISPATCH_VERNACULAR_ASSIST',
+      estimatedProbability: Math.min(0.68, probability + 0.08),
+      interventionCost: 1000,
+      estimatedFriction: Math.round(context.amount * 0.03)
+    });
+  }
+
+  if (context.playbook === 'promise_to_pay') {
+    definitions.push({
+      action: 'RECORD_PROMISE_TO_PAY',
+      estimatedProbability: Math.min(0.70, probability + 0.10),
+      interventionCost: 0,
+      estimatedFriction: 0
+    });
+  }
+
   return definitions.map((candidate) => ({
     ...candidate,
     recoverableAmount: context.amount,

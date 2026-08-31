@@ -1,7 +1,14 @@
 const { z } = require('zod');
 const { contextFacts } = require('./contextBuilder');
 
-const actions = ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+const actions = [
+  'CREATE_PAYMENT_LINK',
+  'REQUEST_MANUAL_REVIEW',
+  'SCHEDULE_RETRY_WINDOW',
+  'DISPATCH_VERNACULAR_ASSIST',
+  'RECORD_PROMISE_TO_PAY',
+  'NO_ACTION'
+];
 const evidenceFields = ['case.amount', 'case.currency', 'case.status', 'case.riskLevel', 'case.riskReason', 'payment.status', 'payment.failureReason', 'payment.attemptCount', 'payment.timeSinceFailureMinutes', 'order.status'];
 
 const diagnosisProposalSchema = z.object({

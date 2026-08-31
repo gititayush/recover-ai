@@ -35,3 +35,70 @@
 .notice-disclaimer { margin-top: 12px; background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #0284c7; padding: 10px 12px; font-size: .82rem; color: #0f172a; border-radius: 4px; }
 .notice-verified { margin-top: 14px; background: #ffffff; border: 1px solid #86efac; border-left: 4px solid #16a34a; padding: 10px 14px; font-size: .85rem; color: #14532d; border-radius: 4px; }
 .notice-pending { margin-top: 14px; background: #ffffff; border: 1px solid #fde68a; border-left: 4px solid #d97706; padding: 10px 14px; font-size: .85rem; color: #92400e; border-radius: 4px; }
+
+/* Tab Navigation & Header */
+.header-actions { display: flex; align-items: center; gap: 12px; }
+.tab-nav { display: flex; background: #e2e8f0; padding: 3px; border-radius: 9px; }
+.tab-nav button { background: transparent; border: 0; padding: 8px 14px; font-weight: 700; font-size: 0.85rem; border-radius: 7px; color: #475569; transition: all 0.15s; }
+.tab-nav button.active { background: #ffffff; color: #1e1b4b; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.btn-refresh { background: #312e81; color: white; border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 600; }
+
+/* Benchmark Container & Grid */
+.benchmark-container { display: grid; gap: 24px; margin-top: 24px; }
+.benchmark-header { display: flex; justify-content: space-between; align-items: start; background: white; padding: 20px; border-radius: 12px; border: 1px solid #e0e6ef; }
+.badge-deterministic { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+.benchmark-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kpi-card { background: white; border: 1px solid #e0e6ef; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px #1725540b; }
+.kpi-card span { display: block; color: #64748b; font-size: 0.82rem; }
+.kpi-card strong { display: block; margin-top: 6px; font-size: 1.45rem; color: #0f172a; }
+.kpi-recovered strong { color: #15803d; }
+.kpi-lift strong { color: #0284c7; }
+.text-lift { color: #0284c7; font-weight: 700; }
+.text-lift-sub { color: #0369a1; font-weight: 600; }
+.text-zero { color: #15803d; font-weight: 800; }
+.text-danger { color: #dc2626; font-weight: 700; }
+
+/* Comparison Table */
+.comparison-card { background: white; border: 1px solid #e0e6ef; border-radius: 12px; padding: 22px; box-shadow: 0 4px 12px #1725540b; }
+.comparison-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.88rem; }
+.comparison-table th, .comparison-table td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+.comparison-table th { background: #f8fafc; color: #475569; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.badge-lift { background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.8rem; }
+.badge-safe { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.8rem; }
+
+/* Seven Playbooks Explorer */
+.playbooks-section { background: white; border: 1px solid #e0e6ef; border-radius: 12px; padding: 22px; box-shadow: 0 4px 12px #1725540b; }
+.playbook-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 20px; }
+.playbook-tab-btn { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; color: #334155; transition: all 0.15s; }
+.playbook-tab-btn.active { background: #312e81; color: white; border-color: #312e81; }
+.playbook-tab-btn.flagship { border-left: 3px solid #f59e0b; }
+.flagship-star { color: #f59e0b; font-weight: 800; }
+.playbook-detail-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; }
+.playbook-detail-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; }
+.badge-flagship { display: inline-block; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; margin-bottom: 6px; }
+.domain-tag { font-size: 0.82rem; color: #64748b; margin-top: 4px; }
+.playbook-kpi-pill { display: flex; gap: 10px; background: white; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; }
+.playbook-desc { font-size: 0.92rem; color: #1e293b; margin-bottom: 18px; line-height: 1.45; }
+.playbook-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.playbook-grid h5 { font-size: 0.82rem; text-transform: uppercase; color: #475569; margin: 12px 0 6px; letter-spacing: 0.03em; }
+.pill-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; }
+.pill-list code { background: #e2e8f0; color: #334155; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; }
+.check-list { list-style: none; padding: 0; font-size: 0.84rem; color: #334155; display: grid; gap: 4px; }
+.candidate-list { list-style: none; padding: 0; display: grid; gap: 6px; }
+.candidate-list li { background: white; border: 1px solid #e2e8f0; padding: 8px 10px; border-radius: 6px; font-size: 0.82rem; }
+.candidate-list li b { color: #1e1b4b; }
+.candidate-list li small { display: block; color: #64748b; margin-top: 2px; }
+.badge-exec { background: #dcfce7; color: #15803d; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; }
+.constraint-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: white; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 6px; }
+.constraint-list dt { font-size: 0.75rem; color: #64748b; }
+.constraint-list dd { margin: 2px 0 0; font-size: 0.85rem; font-weight: 700; color: #0f172a; }
+.sample-scenario { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
+.sample-scenario h5 { font-size: 0.82rem; text-transform: uppercase; color: #475569; margin: 0 0 8px; }
+.sample-scenario dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: white; padding: 10px 14px; border-radius: 6px; border: 1px solid #e2e8f0; }
+.benchmark-empty { background: white; padding: 40px; border-radius: 12px; text-align: center; border: 1px solid #e0e6ef; }
+
+@media (max-width: 900px) {
+  .benchmark-kpis { grid-template-columns: repeat(2, 1fr); }
+  .playbook-grid { grid-template-columns: 1fr; }
+  .sample-scenario dl { grid-template-columns: repeat(2, 1fr); }
+}

@@ -6,3 +6,6 @@ coverage/
 **/coverage/
 dist/
 **/dist/
+
+__pycache__/
+*.pyc

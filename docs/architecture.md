@@ -108,6 +108,58 @@ The reconciliation service (`backend/src/services/reconciliationService.js`) clo
 
 ---
 
-## Stopped & Deferred Layers
+---
 
-- **Deferred Milestones**: Automated retries, customer SMS/email messaging, refunds, discounts, subscriptions, multi-action orchestration, and batch statistical evaluation are deferred to future milestones.
+## The Seven Track 03 Recovery Playbooks
+
+RecoverAI organizes all recovery capabilities into seven domain playbooks:
+
+1. **`payment_degradation` (Flagship Real E2E Workflow)**: Detects gateway/acquirer downtime, transient bank outages, and network timeouts. Executes real Razorpay Test Mode Payment Links and reconciles outcomes via webhooks.
+2. **`checkout_drop_off`**: High-intent cart abandonment & auth hesitation recovery with cart-contextual payment links.
+3. **`failed_subscription`**: Recurring auto-debit charge failure recovery with instant cancellation and refund stopping rules.
+4. **`b2b_receivables`**: Overdue corporate invoice chaser with mandatory human review for invoices $> \text{₹}25,000$.
+5. **`mandate_retry`**: UPI Autopay / e-Mandate retry sequencer aligned with monthly salary cycles (1st–5th).
+6. **`hinglish_voice_recovery`**: Vernacular checkout assistance for Tier-2/Tier-3 customers with localized bilingual scripts and WhatsApp links.
+7. **`promise_to_pay`**: Commitment-date tracking that suppresses intermediate reminder spam until the promised payday.
+
+---
+
+## Batch Evaluation Architecture & Python/Node Boundary
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ PRODUCTION ENGINE (Node.js + Express + PostgreSQL + React)  │
+│ - Live Webhooks (Razorpay HMAC-SHA256)                      │
+│ - Authoritative Policy Engine (12 Rules)                    │
+│ - Razorpay Test Mode Payment Link Executor                  │
+│ - Real-time Outcome Reconciliation Engine                   │
+│ - Operations & Benchmark Dashboard (/api/recovery/*)        │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Loads evaluation_summary.json
+┌──────────────────────────────▼──────────────────────────────┐
+│ BATCH EVALUATION LAYER (Python 3.13)                        │
+│ - evaluation/corpus_generator.py (Seed 42, 560 Cases)       │
+│ - evaluation/baseline_evaluator.py (Rules-Only Baseline)    │
+│ - evaluation/recoverai_evaluator.py (RecoverAI Engine)      │
+│ - evaluation/metrics_calculator.py (Statistical 95% CI)     │
+│ - evaluation/benchmark_runner.py (CLI: pnpm evaluate)       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Reproducibility Strategy
+- Single CLI command: `pnpm evaluate` (or `python evaluation/benchmark_runner.py --seed 42 --cases-per-playbook 80`).
+- Generates `evaluation/results/evaluation_summary.json`, `evaluation_report.md`, and `recovery_comparison.svg`.
+- Guarantees 0 unsafe financial actions in RecoverAI compared to baseline violations on cancelled/refunded transactions.
+
+---
+
+## Live Product vs. Offline Benchmark Separation
+
+| Architecture Dimension | Live Product (Operational System) | Offline Benchmark (Simulation Layer) |
+|---|---|---|
+| **Diagnosis Source** | Live AI (Gemini / Anthropic / OpenAI / Fallback) | Seeded synthetic diagnosis structure |
+| **Evidence Grounding** | Validated against real normalized webhook facts | Pre-generated corpus scenario fields |
+| **Policy Engine** | 12 authoritative rules evaluated in Node.js | Exact same 12 policy rules evaluated in Python engine |
+| **Execution** | Real Razorpay Standard Payment Links (Test Mode) | Modeled intervention execution |
+| **Outcome Reconciliation** | Provider webhooks (`payment_link.paid`) | Shared ground-truth response model |
+| **Evaluation Scope** | Operational revenue recovery workflow | Policy, safety, and decision engine benchmark |

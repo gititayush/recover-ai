@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" width="100%" height="100%">
+<style>
+  .title { font-family: system-ui, -apple-system, sans-serif; font-weight: 700; font-size: 16px; fill: #0f172a; }
+  .subtitle { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #64748b; }
+  .label { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; fill: #334155; }
+  .value { font-family: system-ui, -apple-system, sans-serif; font-weight: 600; font-size: 11px; }
+  .legend { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #475569; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff" rx="8" />
+<text x="24" y="32" class="title">RecoverAI vs. Rules-Only Baseline — Eligible Recovery Rate by Playbook</text>
+<text x="24" y="52" class="subtitle">Reproducible Stratified Benchmark (N = 560 cases, Seed = 42)</text>
+<rect x="520" y="24" width="14" height="14" fill="#94a3b8" rx="2" />
+<text x="540" y="36" class="legend">Rules-Only Baseline</text>
+<rect x="670" y="24" width="14" height="14" fill="#0284c7" rx="2" />
+<text x="690" y="36" class="legend">RecoverAI</text>
+<line x1="200" y1="70" x2="200" y2="380" stroke="#cbd5e1" stroke-width="1" />
+<line x1="200" y1="380" x2="760" y2="380" stroke="#cbd5e1" stroke-width="1" />
+<text x="190" y="101" class="label" text-anchor="end">Payment Degradation & ...</text>
+<rect x="200" y="85" width="364" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="570" y="96" class="value" fill="#64748b">76.0%</text>
+<rect x="200" y="103" width="350" height="14" fill="#0284c7" rx="3" />
+<text x="556" y="114" class="value" fill="#0284c7">73.1% (+-2.9%)</text>
+<text x="190" y="143" class="label" text-anchor="end">Checkout Drop-off Reco...</text>
+<rect x="200" y="127" width="311" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="517" y="138" class="value" fill="#64748b">64.9%</text>
+<rect x="200" y="145" width="215" height="14" fill="#0284c7" rx="3" />
+<text x="421" y="156" class="value" fill="#0284c7">44.9% (+-20.0%)</text>
+<text x="190" y="185" class="label" text-anchor="end">Failed-Subscription Re...</text>
+<rect x="200" y="169" width="191" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="397" y="180" class="value" fill="#64748b">40.0%</text>
+<rect x="200" y="187" width="316" height="14" fill="#0284c7" rx="3" />
+<text x="522" y="198" class="value" fill="#0284c7">66.0% (+26.0%)</text>
+<text x="190" y="227" class="label" text-anchor="end">B2B Receivables Chaser</text>
+<rect x="200" y="211" width="167" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="373" y="222" class="value" fill="#64748b">34.8%</text>
+<rect x="200" y="229" width="308" height="14" fill="#0284c7" rx="3" />
+<text x="514" y="240" class="value" fill="#0284c7">64.3% (+29.4%)</text>
+<text x="190" y="269" class="label" text-anchor="end">Mandate Retry Sequencer</text>
+<rect x="200" y="253" width="238" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="444" y="264" class="value" fill="#64748b">49.7%</text>
+<rect x="200" y="271" width="308" height="14" fill="#0284c7" rx="3" />
+<text x="514" y="282" class="value" fill="#0284c7">64.3% (+14.6%)</text>
+<text x="190" y="311" class="label" text-anchor="end">Hinglish Voice Recovery</text>
+<rect x="200" y="295" width="238" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="444" y="306" class="value" fill="#64748b">49.8%</text>
+<rect x="200" y="313" width="286" height="14" fill="#0284c7" rx="3" />
+<text x="492" y="324" class="value" fill="#0284c7">59.6% (+9.9%)</text>
+<text x="190" y="353" class="label" text-anchor="end">Promise-to-Pay Tracker</text>
+<rect x="200" y="337" width="274" height="14" fill="#94a3b8" rx="3" opacity="0.85" />
+<text x="480" y="348" class="value" fill="#64748b">57.2%</text>
+<rect x="200" y="355" width="396" height="14" fill="#0284c7" rx="3" />
+<text x="602" y="366" class="value" fill="#0284c7">82.5% (+25.4%)</text>
+</svg>

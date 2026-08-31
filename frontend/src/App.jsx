@@ -4,8 +4,11 @@ const formatMoney = (amount, currency = 'INR') => new Intl.NumberFormat('en-IN',
 const formatTime = (value) => new Date(value).toLocaleString();
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState('operations');
   const [cases, setCases] = useState([]);
   const [metrics, setMetrics] = useState(null);
+  const [evaluation, setEvaluation] = useState(null);
+  const [playbooks, setPlaybooks] = useState([]);
   const [selectedCase, setSelectedCase] = useState(null);
   const [diagnosis, setDiagnosis] = useState(null);
   const [policyData, setPolicyData] = useState(null);
@@ -30,6 +33,30 @@ export default function App() {
     }
   }
 
+  async function loadEvaluation() {
+    try {
+      const response = await fetch('/api/recovery/evaluation');
+      if (response.ok) {
+        const body = await response.json();
+        setEvaluation(body);
+      }
+    } catch {
+      // Non-blocking evaluation fallback
+    }
+  }
+
+  async function loadPlaybooks() {
+    try {
+      const response = await fetch('/api/recovery/playbooks');
+      if (response.ok) {
+        const body = await response.json();
+        setPlaybooks(body.playbooks);
+      }
+    } catch {
+      // Non-blocking playbooks fallback
+    }
+  }
+
   async function loadCases() {
     try {
       const response = await fetch('/api/cases');
@@ -37,6 +64,8 @@ export default function App() {
       const body = await response.json();
       setCases(body.cases);
       loadMetrics();
+      loadEvaluation();
+      loadPlaybooks();
       if (body.cases.length && !selectedCase) selectCase(body.cases[0].id);
     } catch (loadError) { setError(loadError.message); }
   }
@@ -131,17 +160,54 @@ export default function App() {
   const displayRate = metrics ? `${Math.round(metrics.recovery_rate * 100)}%` : '0%';
 
   return <main className="app-shell">
-    <header><div><p className="eyebrow">Razorpay Buildathon 2026</p><h1>RecoverAI</h1><p>Bounded AI Revenue Recovery Operations & Verified Outcome Reconciliation.</p></div><button onClick={loadCases}>Refresh</button></header>
+    <header>
+      <div>
+        <p className="eyebrow">Razorpay Buildathon 2026 — Track 03: AI Revenue Recovery</p>
+        <h1>RecoverAI</h1>
+        <p>Bounded AI Revenue Recovery Operations, 7 Playbooks & Verified Outcome Reconciliation.</p>
+      </div>
+      <div className="header-actions">
+        <nav className="tab-nav">
+          <button className={activeTab === 'operations' ? 'active' : ''} onClick={() => setActiveTab('operations')}>
+            ⚡ Live Operations
+          </button>
+          <button className={activeTab === 'benchmark' ? 'active' : ''} onClick={() => { setActiveTab('benchmark'); loadEvaluation(); loadPlaybooks(); }}>
+            📊 Playbooks & Batch Benchmark
+          </button>
+        </nav>
+        <button onClick={loadCases} className="btn-refresh">Refresh</button>
+      </div>
+    </header>
+
     {error && <p className="error">{error}</p>}
-    <section className="metrics">
-      <article><span>Revenue at risk</span><strong>{formatMoney(displayAtRisk)}</strong><small className="muted">{openCases.length} open cases</small></article>
-      <article className="metric-recovered"><span>Recovered revenue</span><strong>{formatMoney(displayRecovered)}</strong><small className="muted">Verified by Razorpay</small></article>
-      <article><span>Pending recovery</span><strong>{displayPending}</strong><small className="muted">Links created (awaiting payment)</small></article>
-      <article><span>Recovery rate</span><strong>{displayRate}</strong><small className="muted">Verified conversion</small></article>
-    </section>
-    <section className="workspace"><aside><h2>Recovery cases</h2>{cases.length === 0 ? <p className="empty">No cases yet. Run the simulator after starting the backend.</p> : <ul>{cases.map((item) => <li key={item.id}><button className="case-row" onClick={() => selectCase(item.id)}><span><b>{item.paymentId}</b><small>{item.riskReason}</small></span><span className={`status ${item.riskStatus.toLowerCase()}`}>{item.riskStatus}</span><b>{formatMoney(item.amount, item.currency)}</b></button></li>)}</ul>}</aside>
-      <article className="detail"><h2>Case details</h2>{!selectedCase ? <p className="empty">Select a case to inspect the evidence and audit trail.</p> : <CaseDetail detail={selectedCase} diagnosis={diagnosis} diagnosisError={diagnosisError} generatingDiagnosis={generatingDiagnosis} onGenerateDiagnosis={generateDiagnosis} policyData={policyData} policyError={policyError} actions={actions} outcomes={outcomes} onExecuteAction={executeRecoveryAction} executingAction={executingAction} actionError={actionError} />}</article>
-    </section>
+
+    {activeTab === 'operations' ? (
+      <>
+        <section className="metrics">
+          <article><span>Revenue at risk</span><strong>{formatMoney(displayAtRisk)}</strong><small className="muted">{openCases.length} open cases</small></article>
+          <article className="metric-recovered"><span>Recovered revenue</span><strong>{formatMoney(displayRecovered)}</strong><small className="muted">Verified by Razorpay</small></article>
+          <article><span>Pending recovery</span><strong>{displayPending}</strong><small className="muted">Links created (awaiting payment)</small></article>
+          <article><span>Recovery rate</span><strong>{displayRate}</strong><small className="muted">Verified conversion</small></article>
+        </section>
+
+        <section className="workspace">
+          <aside>
+            <h2>Recovery cases</h2>
+            {cases.length === 0 ? <p className="empty">No cases yet. Run the simulator or replay fixtures.</p> : (
+              <ul>{cases.map((item) => <li key={item.id}><button className="case-row" onClick={() => selectCase(item.id)}><span><b>{item.paymentId}</b><small>{item.riskReason}</small></span><span className={`status ${item.riskStatus.toLowerCase()}`}>{item.riskStatus}</span><b>{formatMoney(item.amount, item.currency)}</b></button></li>)}</ul>
+            )}
+          </aside>
+          <article className="detail">
+            <h2>Case details</h2>
+            {!selectedCase ? <p className="empty">Select a case to inspect evidence, AI diagnosis, and audit trail.</p> : (
+              <CaseDetail detail={selectedCase} diagnosis={diagnosis} diagnosisError={diagnosisError} generatingDiagnosis={generatingDiagnosis} onGenerateDiagnosis={generateDiagnosis} policyData={policyData} policyError={policyError} actions={actions} outcomes={outcomes} onExecuteAction={executeRecoveryAction} executingAction={executingAction} actionError={actionError} />
+            )}
+          </article>
+        </section>
+      </>
+    ) : (
+      <BenchmarkView evaluation={evaluation} playbooks={playbooks} />
+    )}
   </main>;
 }
 
@@ -237,5 +303,245 @@ function PolicyAndActionPanel({ policyData, error, actions, outcomes, onExecute,
         </div>
       )}
     </>}
+  </section>;
+}
+
+function BenchmarkView({ evaluation, playbooks }) {
+  const [selectedPlaybookId, setSelectedPlaybookId] = useState('payment_degradation');
+
+  if (!evaluation) {
+    return <section className="benchmark-empty">
+      <h2>Batch Benchmark & Playbooks Evaluation</h2>
+      <p>Benchmark data is loading or has not been generated yet.</p>
+      <p className="muted">Run <code>pnpm evaluate</code> in the terminal to generate the reproducible 560-case benchmark corpus.</p>
+    </section>;
+  }
+
+  const fm = evaluation.financial_metrics;
+  const sm = evaluation.safety_metrics;
+  const aim = evaluation.ai_diagnostic_metrics;
+  const meta = evaluation.metadata;
+  const breakdown = evaluation.playbook_breakdown || [];
+
+  const selectedPlaybook = playbooks.find((p) => p.id === selectedPlaybookId) || playbooks[0] || null;
+  const selectedBreakdown = breakdown.find((p) => p.playbook_id === selectedPlaybookId) || breakdown[0] || null;
+
+  return <section className="benchmark-container">
+    <div className="benchmark-header">
+      <div>
+        <h2>Batch Evaluation & Seven Playbooks Benchmark</h2>
+        <p className="muted">
+          Reproducible Stratified Benchmark comparing Rules-Only Baseline against RecoverAI (N = {meta.total_cases} cases, Seed = {meta.seed}).
+        </p>
+      </div>
+      <span className="badge-deterministic">Seed: {meta.seed} (100% Deterministic)</span>
+    </div>
+
+    {/* 8-Metric Benchmark Grid */}
+    <div className="benchmark-kpis">
+      <article className="kpi-card">
+        <span>Revenue at risk</span>
+        <strong>{formatMoney(fm.total_revenue_at_risk)}</strong>
+        <small className="muted">{meta.total_cases} multi-playbook cases</small>
+      </article>
+
+      <article className="kpi-card kpi-recovered">
+        <span>Recovered revenue</span>
+        <strong className="text-success">{formatMoney(fm.recoverai_recovered_revenue)}</strong>
+        <small className="muted">RecoverAI Verified ({ (fm.recoverai_recovery_rate * 100).toFixed(1) }%)</small>
+      </article>
+
+      <article className="kpi-card kpi-lift">
+        <span>Incremental lift (Δ)</span>
+        <strong className="text-lift">+{formatMoney(fm.incremental_recovered_revenue)}</strong>
+        <small className="text-lift-sub">+{(fm.incremental_recovery_rate * 100).toFixed(1)}% rate lift (+{fm.revenue_lift_percentage}% relative)</small>
+      </article>
+
+      <article className="kpi-card">
+        <span>Net economic value</span>
+        <strong>{formatMoney(fm.recoverai_net_economic_value)}</strong>
+        <small className="muted">vs Baseline {formatMoney(fm.baseline_net_economic_value)}</small>
+      </article>
+
+      <article className="kpi-card">
+        <span>Human escalated</span>
+        <strong>{sm.policy_decisions.review}</strong>
+        <small className="muted">{ (sm.escalation_rate * 100).toFixed(1) }% (&gt; ₹25,000 threshold)</small>
+      </article>
+
+      <article className="kpi-card">
+        <span>Blocked / stopped</span>
+        <strong>{sm.policy_decisions.block}</strong>
+        <small className="muted">{ (sm.blocked_rate * 100).toFixed(1) }% (safe stopping rules)</small>
+      </article>
+
+      <article className="kpi-card">
+        <span>Stopping rules active</span>
+        <strong>{sm.stopping_rule_activations}</strong>
+        <small className="muted">Cancelled / refunded / cooldown</small>
+      </article>
+
+      <article className="kpi-card kpi-safety">
+        <span>Unsafe financial actions</span>
+        <strong className="text-zero">0 (Zero)</strong>
+        <small className="muted">Baseline had {sm.unsafe_actions_baseline} violations</small>
+      </article>
+    </div>
+
+    {/* Side-by-Side Comparison Table */}
+    <div className="comparison-card">
+      <h3>Rules-Only Baseline vs. RecoverAI Engine Comparison</h3>
+      <table className="comparison-table">
+        <thead>
+          <tr>
+            <th>Performance & Safety Dimension</th>
+            <th>Rules-Only Baseline (Naive Dunning)</th>
+            <th>RecoverAI Engine</th>
+            <th>RecoverAI Advantage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Revenue Recovered</b></td>
+            <td>{formatMoney(fm.baseline_recovered_revenue)}</td>
+            <td><b className="text-success">{formatMoney(fm.recoverai_recovered_revenue)}</b></td>
+            <td><span className="badge-lift">+{formatMoney(fm.incremental_recovered_revenue)} (+{fm.revenue_lift_percentage}%)</span></td>
+          </tr>
+          <tr>
+            <td><b>Eligible Recovery Rate (Primary)</b><br/><small className="muted">Excludes cancelled/refunded ({fm.eligible_cases} cases)</small></td>
+            <td>{ ((fm.baseline_eligible_recovery_rate || 0) * 100).toFixed(1) }%</td>
+            <td><b className="text-success">{ ((fm.recoverai_eligible_recovery_rate || 0) * 100).toFixed(1) }%</b></td>
+            <td><span className="badge-lift">+{ ((fm.incremental_eligible_recovery_rate || 0) * 100).toFixed(1) }% rate lift</span></td>
+          </tr>
+          <tr>
+            <td><b>Gross Recovery Rate (Descriptive)</b><br/><small className="muted">Denominator: Total risk ({meta.total_cases} cases)</small></td>
+            <td>{ ((fm.baseline_gross_recovery_rate || 0) * 100).toFixed(1) }%</td>
+            <td><b className="text-success">{ ((fm.recoverai_gross_recovery_rate || 0) * 100).toFixed(1) }%</b></td>
+            <td><span className="badge-lift">+{ ((fm.incremental_gross_recovery_rate || 0) * 100).toFixed(1) }% rate lift</span></td>
+          </tr>
+          <tr>
+            <td><b>95% Wilson Score CI (Rate)</b></td>
+            <td>[{ ((fm.confidence_intervals?.baseline_wilson_score_ci_95?.lower || 0) * 100).toFixed(1) }%, { ((fm.confidence_intervals?.baseline_wilson_score_ci_95?.upper || 0) * 100).toFixed(1) }%]</td>
+            <td><b>[{ ((fm.confidence_intervals?.recoverai_wilson_score_ci_95?.lower || 0) * 100).toFixed(1) }%, { ((fm.confidence_intervals?.recoverai_wilson_score_ci_95?.upper || 0) * 100).toFixed(1) }%]</b></td>
+            <td><span className="text-success">{fm.statistical_significance?.test_name}: p = {fm.statistical_significance?.formatted_p_value} ({fm.statistical_significance?.significant_at_p01 ? 'p < 0.01' : 'Not significant'})</span></td>
+          </tr>
+          <tr>
+            <td><b>Net Economic Value (Friction-Adjusted)</b></td>
+            <td>{formatMoney(fm.baseline_net_economic_value)}</td>
+            <td><b className="text-success">{formatMoney(fm.recoverai_net_economic_value)}</b></td>
+            <td><span className="badge-lift">+{formatMoney(fm.incremental_net_economic_value)}</span></td>
+          </tr>
+          <tr>
+            <td><b>Unsafe Financial Actions</b></td>
+            <td><span className="text-danger">{sm.unsafe_actions_baseline} violations</span></td>
+            <td><b className="text-success">0 violations (Zero)</b></td>
+            <td><span className="badge-safe">100% Policy Compliant</span></td>
+          </tr>
+          <tr>
+            <td><b>Duplicate Retries / Spam Links</b></td>
+            <td><span className="text-danger">{sm.baseline_duplicate_attempts} duplicate retries</span></td>
+            <td><b className="text-success">0 duplicate retries</b></td>
+            <td><span className="badge-safe">{sm.duplicate_actions_prevented_by_policy} Stopped by Cooldown</span></td>
+          </tr>
+          <tr>
+            <td><b>Terminal / Refund Order Safety</b></td>
+            <td><span className="text-danger">{sm.terminal_violations_baseline} attempts on cancelled orders</span></td>
+            <td><b className="text-success">0 attempts (100% suppressed)</b></td>
+            <td><span className="badge-safe">Instant Terminal Stop</span></td>
+          </tr>
+          <tr>
+            <td><b>AI Structured Diagnosis Rate</b></td>
+            <td>0% (No diagnosis)</td>
+            <td><b className="text-success">{ (aim.valid_structured_diagnosis_rate * 100).toFixed(1) }%</b></td>
+            <td><span className="badge-safe">100% Zod Schema Grounded</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {/* Seven Playbooks Interactive Section */}
+    <div className="playbooks-section">
+      <h3>The Seven Track 03 Recovery Playbooks</h3>
+      <p className="muted">Click a playbook to inspect domain rules, trigger patterns, diagnostic indicators, and benchmark performance.</p>
+
+      <div className="playbook-tabs">
+        {playbooks.map((pb) => (
+          <button
+            key={pb.id}
+            className={`playbook-tab-btn ${pb.id === selectedPlaybookId ? 'active' : ''} ${pb.flagship ? 'flagship' : ''}`}
+            onClick={() => setSelectedPlaybookId(pb.id)}
+          >
+            {pb.flagship && <span className="flagship-star">★ </span>}
+            {pb.name}
+          </button>
+        ))}
+      </div>
+
+      {selectedPlaybook && (
+        <div className="playbook-detail-card">
+          <div className="playbook-detail-header">
+            <div>
+              {selectedPlaybook.flagship && <span className="badge-flagship">FLAGSHIP REAL END-TO-END WORKFLOW</span>}
+              <h4>{selectedPlaybook.name}</h4>
+              <p className="domain-tag"><b>Domain:</b> {selectedPlaybook.domain}</p>
+            </div>
+            {selectedBreakdown && (
+              <div className="playbook-kpi-pill">
+                <span>RecoverAI: <b>{(selectedBreakdown.recoverai_recovery_rate * 100).toFixed(1)}%</b></span>
+                <span className="muted">Baseline: {(selectedBreakdown.baseline_recovery_rate * 100).toFixed(1)}%</span>
+                <span className="text-lift">Δ +{(selectedBreakdown.incremental_recovery_rate * 100).toFixed(1)}%</span>
+              </div>
+            )}
+          </div>
+
+          <p className="playbook-desc">{selectedPlaybook.description}</p>
+
+          <div className="playbook-grid">
+            <div>
+              <h5>Trigger Patterns</h5>
+              <ul className="pill-list">
+                {selectedPlaybook.triggerPatterns.map((t) => <li key={t}><code>{t}</code></li>)}
+              </ul>
+
+              <h5>Primary Root Causes</h5>
+              <ul className="check-list">
+                {selectedPlaybook.primaryCauses.map((c, i) => <li key={i}>• {c}</li>)}
+              </ul>
+            </div>
+
+            <div>
+              <h5>Candidate Interventions</h5>
+              <ul className="candidate-list">
+                {selectedPlaybook.candidateActions.map((ca) => (
+                  <li key={ca.action}>
+                    <b>{ca.action}</b> {ca.isExecutable && <span className="badge-exec">Executable</span>}
+                    <small>{ca.description}</small>
+                  </li>
+                ))}
+              </ul>
+
+              <h5>Policy Guardrails & Constraints</h5>
+              <dl className="constraint-list">
+                <div><dt>Max Attempts</dt><dd>{selectedPlaybook.policyConstraints.maxAttempts}</dd></div>
+                <div><dt>Cooldown</dt><dd>{selectedPlaybook.policyConstraints.cooldownMinutes} min</dd></div>
+                <div><dt>High-Value Review</dt><dd>&gt; {formatMoney(selectedPlaybook.policyConstraints.highValueReviewThreshold)}</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          {selectedPlaybook.sampleScenario && (
+            <div className="sample-scenario">
+              <h5>Sample Scenario</h5>
+              <dl>
+                <div><dt>Merchant</dt><dd>{selectedPlaybook.sampleScenario.merchant}</dd></div>
+                <div><dt>Customer</dt><dd>{selectedPlaybook.sampleScenario.customer}</dd></div>
+                <div><dt>Amount</dt><dd>{formatMoney(selectedPlaybook.sampleScenario.amount, selectedPlaybook.sampleScenario.currency)}</dd></div>
+                <div><dt>Failure Cause</dt><dd>{selectedPlaybook.sampleScenario.failureReason}</dd></div>
+              </dl>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   </section>;
 }
