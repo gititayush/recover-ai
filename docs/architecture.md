@@ -1,4 +1,4 @@
-# RecoverAI architecture — milestones 1 and 2
+# RecoverAI architecture — milestones 1, 2, and 3
 
 ```mermaid
 flowchart TD
@@ -11,6 +11,12 @@ flowchart TD
   E --> RD[Deterministic risk detector]
   RD --> C[RecoveryCase + append-only audit trail]
   C --> UI[REST case APIs and React dashboard]
+  C --> CT[Minimized case context]
+  CT --> AI[AI provider or deterministic development fallback]
+  AI --> V[Strict schema and evidence validation]
+  V --> IE[Deterministic intervention evaluation]
+  IE --> D[Persisted AI diagnosis + AI_DIAGNOSIS audit]
+  D --> UI
 ```
 
 ## Current flow
@@ -27,12 +33,31 @@ Supported event types are `payment.failed`, `payment.authorized`, `payment.captu
 
 The React dashboard reads the actual case APIs and calculates its totals from returned cases. The Node simulator submits fixed scenarios; it does not generate random or dashboard-only data.
 
+## AI diagnosis proposals
+
+`POST /api/cases/:id/diagnosis` is explicit; no background or list-query AI call exists. It builds a minimized deterministic context from the case and normalized events. Context includes amount, currency, case/risk status, latest payment/order state, recorded failure reason, failure count, elapsed failure time, and five recent normalized event summaries. It excludes raw payloads, secrets, credentials, and customer references.
+
+The provider adapter is replaceable. With `AI_API_KEY`, the included OpenAI-compatible adapter calls the configured provider/model; without a key, the deterministic development fallback is used and persisted as `development_fallback`. The fallback exists for reproducible development only and does not represent measured AI performance.
+
+Provider output must validate against a strict JSON schema: diagnosis cause, numeric confidence, exact context-grounded evidence, and a limited proposed action (`CREATE_PAYMENT_LINK`, `REQUEST_MANUAL_REVIEW`, or `NO_ACTION`). Invalid/malformed output, unknown actions, missing evidence, and invented evidence are rejected. A versioned prompt (`recoverai-diagnosis-v1`) states that the model cannot execute money movement.
+
+The application separately evaluates all three conceptual interventions using `recovery-heuristic-v1`:
+
+```text
+estimated recovery value = estimated recovery probability × recoverable amount
+                           − intervention cost − estimated friction
+```
+
+These values are transparent heuristic assumptions, not learned probabilities or claimed results. Low confidence deterministically selects manual review. Resolved, suppressed, captured, paid, or refunded cases receive persisted `NO_ACTION` from a terminal safety path. The accepted decision is stored once per case in `ai_diagnoses`; repeated requests return the cached decision and do not append another audit event.
+
+AI proposes. Deterministic application logic evaluates. Policy will later authorize. The executor will later perform the bounded action.
+
 ## Local fixture replay
 
 `pnpm replay:razorpay` signs fixture bytes in `backend/test/fixtures/razorpay` with the configured webhook secret and sends them to the HTTP webhook route. This exercises the same verification, idempotency, normalization, transaction, and canonical processing path used by real delivery. The fixtures are deterministic Razorpay-shaped test data, not live Razorpay payload captures.
 
 ## Deferred layers
 
-No LLM is connected in this milestone. Future AI will return a validated, structured diagnosis/recommendation only. It will not execute an action.
+In Milestone 3, the AI layer generates and validates structured diagnosis proposals. It does not perform money movement or execution.
 
-The deterministic financial-action policy layer and bounded action executors are deferred. No payment links, capture execution, autonomous retries, customer messages, refunds, discounts, or other money movement exists in this milestone.
+The deterministic financial-action policy layer and bounded action executors are deferred to future milestones. No payment link generation execution, capture execution, autonomous retries, customer messages, refunds, discounts, or other money movement exists in this milestone.

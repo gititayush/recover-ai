@@ -9,7 +9,12 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
-  RAZORPAY_WEBHOOK_SECRET: z.string().optional()
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  AI_PROVIDER: z.string().default('openai-compatible'),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().default('gpt-4.1-mini'),
+  AI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
+  AI_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.65)
 });
 
 const environment = environmentSchema.parse({
@@ -18,7 +23,12 @@ const environment = environmentSchema.parse({
   LOG_LEVEL: process.env.LOG_LEVEL,
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,
-  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET
+  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET,
+  AI_PROVIDER: process.env.AI_PROVIDER,
+  AI_API_KEY: process.env.AI_API_KEY,
+  AI_MODEL: process.env.AI_MODEL,
+  AI_BASE_URL: process.env.AI_BASE_URL,
+  AI_CONFIDENCE_THRESHOLD: process.env.AI_CONFIDENCE_THRESHOLD
 });
 
 function getRazorpayWebhookSecret() {

@@ -49,6 +49,25 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS ai_diagnoses (
+  id BIGSERIAL PRIMARY KEY,
+  recovery_case_id BIGINT NOT NULL UNIQUE REFERENCES recovery_cases(id) ON DELETE CASCADE,
+  diagnosis_cause TEXT NOT NULL,
+  confidence NUMERIC(4,3) NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  evidence JSONB NOT NULL,
+  proposed_action TEXT NOT NULL CHECK (proposed_action IN ('CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION')),
+  recommended_action TEXT NOT NULL CHECK (recommended_action IN ('CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION')),
+  selection_reason TEXT NOT NULL,
+  candidate_interventions JSONB NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('live_ai', 'development_fallback', 'system_safety')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ai_diagnoses_created_at_idx ON ai_diagnoses (created_at DESC);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id BIGSERIAL PRIMARY KEY,
   recovery_case_id BIGINT NOT NULL REFERENCES recovery_cases(id) ON DELETE CASCADE,
@@ -57,5 +76,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE audit_events DROP CONSTRAINT IF EXISTS audit_events_event_type_check;
+ALTER TABLE audit_events ADD CONSTRAINT audit_events_event_type_check CHECK (event_type IN ('EVENT_RECEIVED', 'RISK_DETECTED', 'CASE_CREATED', 'CASE_UPDATED', 'AI_DIAGNOSIS'));
 
 CREATE INDEX IF NOT EXISTS audit_events_case_id_idx ON audit_events (recovery_case_id, created_at);

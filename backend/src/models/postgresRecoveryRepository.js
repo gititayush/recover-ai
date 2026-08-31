@@ -24,6 +24,17 @@ function mapCase(row) {
   };
 }
 
+function mapDiagnosis(row) {
+  return {
+    id: Number(row.id), recoveryCaseId: Number(row.recovery_case_id),
+    diagnosis: { cause: row.diagnosis_cause, confidence: Number(row.confidence), evidence: row.evidence },
+    proposedAction: row.proposed_action,
+    recommendation: { action: row.recommended_action, reason: row.selection_reason },
+    candidates: row.candidate_interventions,
+    provider: row.provider, model: row.model, promptVersion: row.prompt_version, source: row.source, createdAt: row.created_at
+  };
+}
+
 class PostgresRecoveryRepository {
   constructor(pool) { this.pool = pool; }
 
@@ -31,7 +42,7 @@ class PostgresRecoveryRepository {
     const result = await this.pool.query(
       `INSERT INTO revenue_events (event_id, event_type, payment_id, order_id, amount, currency, payment_status, failure_reason, customer_reference, occurred_at, raw_payload)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (event_id) DO NOTHING RETURNING *`,
-      [event.eventId, event.eventType, event.paymentId, event.orderId, event.amount, event.currency, event.paymentStatus, event.failureReason, event.customerReference, event.timestamp, event.rawPayload]
+      [event.eventId, event.eventType, event.paymentId, event.orderId, event.amount, event.currency, event.paymentStatus, event.failureReason, event.customerReference, event.timestamp, typeof event.rawPayload === 'string' ? event.rawPayload : JSON.stringify(event.rawPayload || {})]
     );
     return result.rows[0] ? mapEvent(result.rows[0]) : null;
   }
@@ -101,10 +112,24 @@ class PostgresRecoveryRepository {
   async addAudit(recoveryCaseId, eventType, message, metadata = {}) {
     const result = await this.pool.query(
       'INSERT INTO audit_events (recovery_case_id, event_type, message, metadata) VALUES ($1,$2,$3,$4) RETURNING *',
-      [recoveryCaseId, eventType, message, metadata]
+      [recoveryCaseId, eventType, message, JSON.stringify(metadata)]
     );
     const row = result.rows[0];
     return { id: Number(row.id), recoveryCaseId: Number(row.recovery_case_id), eventType: row.event_type, message: row.message, metadata: row.metadata, createdAt: row.created_at };
+  }
+
+  async findDiagnosisByCaseId(recoveryCaseId) {
+    const result = await this.pool.query('SELECT * FROM ai_diagnoses WHERE recovery_case_id = $1', [recoveryCaseId]);
+    return result.rows[0] ? mapDiagnosis(result.rows[0]) : null;
+  }
+
+  async createDiagnosis(data) {
+    const result = await this.pool.query(
+      `INSERT INTO ai_diagnoses (recovery_case_id, diagnosis_cause, confidence, evidence, proposed_action, recommended_action, selection_reason, candidate_interventions, provider, model, prompt_version, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (recovery_case_id) DO NOTHING RETURNING *`,
+      [data.recoveryCaseId, data.diagnosis.cause, data.diagnosis.confidence, JSON.stringify(data.diagnosis.evidence), data.proposedAction, data.recommendation.action, data.recommendation.reason, JSON.stringify(data.candidates), data.provider, data.model, data.promptVersion, data.source]
+    );
+    return result.rows[0] ? mapDiagnosis(result.rows[0]) : null;
   }
 
   async listCases() {

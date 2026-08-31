@@ -4,9 +4,11 @@ class InMemoryRecoveryRepository {
     this.providerWebhookEvents = [];
     this.cases = [];
     this.audits = [];
+    this.aiDiagnoses = [];
     this.nextCaseId = 1;
     this.nextAuditId = 1;
     this.nextProviderWebhookEventId = 1;
+    this.nextAiDiagnosisId = 1;
   }
 
   async createEvent(event) {
@@ -64,6 +66,17 @@ class InMemoryRecoveryRepository {
     const audit = { id: this.nextAuditId++, recoveryCaseId, eventType, message, metadata, createdAt: new Date().toISOString() };
     this.audits.push(audit);
     return audit;
+  }
+
+  async findDiagnosisByCaseId(recoveryCaseId) {
+    return this.aiDiagnoses.find((diagnosis) => diagnosis.recoveryCaseId === Number(recoveryCaseId)) || null;
+  }
+
+  async createDiagnosis(data) {
+    if (await this.findDiagnosisByCaseId(data.recoveryCaseId)) return null;
+    const diagnosis = { id: this.nextAiDiagnosisId++, createdAt: new Date().toISOString(), ...data };
+    this.aiDiagnoses.push(diagnosis);
+    return diagnosis;
   }
 
   async listCases() {
