@@ -1,5 +1,5 @@
-﻿"""
-RecoverAI Evaluation â€” Shared Ground-Truth Customer Response Model
+"""
+RecoverAI Evaluation — Shared Ground-Truth Customer Response Model
 A single, unified response function shared identically by Baseline and RecoverAI.
 Contains NO system-specific conversion bonuses or hard-coded multipliers.
 """
@@ -9,11 +9,11 @@ from evaluation.utils import stable_uniform
 
 # Transparent unit economics (in paise)
 ACTION_COSTS = {
-    "CREATE_PAYMENT_LINK": 50,          # â‚¹0.50 (Payment Link API fee)
-    "REQUEST_MANUAL_REVIEW": 2500,      # â‚¹25.00 (Merchant agent manual review cost)
-    "SCHEDULE_RETRY_WINDOW": 20,        # â‚¹0.20 (Scheduled batch retry fee)
-    "DISPATCH_VERNACULAR_ASSIST": 100,  # â‚¹1.00 (WhatsApp/SMS bilingual assist fee)
-    "RECORD_PROMISE_TO_PAY": 0,         # â‚¹0.00 (Deferred state tracking)
+    "CREATE_PAYMENT_LINK": 50,          # INR 0.50 (Payment Link API fee)
+    "REQUEST_MANUAL_REVIEW": 2500,      # INR 25.00 (Merchant agent manual review cost)
+    "SCHEDULE_RETRY_WINDOW": 20,        # INR 0.20 (Scheduled batch retry fee)
+    "DISPATCH_VERNACULAR_ASSIST": 100,  # INR 1.00 (WhatsApp/SMS bilingual assist fee)
+    "RECORD_PROMISE_TO_PAY": 0,         # INR 0.00 (Deferred state tracking)
     "NO_ACTION": 0
 }
 

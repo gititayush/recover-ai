@@ -1,5 +1,5 @@
-﻿"""
-RecoverAI Evaluation â€” Rules-Only Baseline Evaluator
+"""
+RecoverAI Evaluation — Rules-Only Baseline Evaluator
 Implements the static, uncalibrated rules-only / naive dunning baseline.
 Delegates outcome generation to the shared ground-truth customer response model.
 """
@@ -13,7 +13,7 @@ class RulesOnlyBaselineEvaluator:
     1. Blindly triggers an immediate Payment Link on every failure.
     2. No root-cause differentiation or AI diagnosis.
     3. Ignores cooldown windows (spams customer immediately).
-    4. Ignores high-value thresholds (> â‚¹25,000 executed automatically without review).
+    4. Ignores high-value thresholds (> INR 25,000 executed automatically without review).
     5. Fails to check terminal / refund / cancellation state.
     """
 

@@ -5,6 +5,7 @@ const request = require('supertest');
 const { createApp } = require('../src/app');
 const { InMemoryRecoveryRepository } = require('../src/models/inMemoryRecoveryRepository');
 const { processEvent } = require('../src/services/eventService');
+const { reconcileOutcome } = require('../src/services/reconciliationService');
 const { createDiagnosisService } = require('../src/ai/diagnosisService');
 const { executePaymentLink } = require('../src/actions/paymentLinkExecutor');
 
@@ -651,7 +652,7 @@ describe('Milestone 5 — Outcome Reconciliation & Verified Revenue Attribution'
   });
 
   describe('7. PostgreSQL Integration', () => {
-    it('persists recovery outcome and updates case in PostgreSQL when database is available', async () => {
+    it('verifies complete verified-recovery lifecycle and idempotency in PostgreSQL when database is available', async () => {
       const { getPool, closePool } = require('../src/db/pool');
       const { PostgresRecoveryRepository } = require('../src/models/postgresRecoveryRepository');
       try {
@@ -659,23 +660,34 @@ describe('Milestone 5 — Outcome Reconciliation & Verified Revenue Attribution'
         await pool.query('SELECT 1');
         const repository = new PostgresRecoveryRepository(pool);
 
-        const testPaymentId = `pay_pg_recon_${Date.now()}`;
+        const now = Date.now();
+        const testPaymentId = `pay_pg_recon_${now}`;
+        const testOrderId = `order_pg_${now}`;
+        const testPlinkId = `plink_pg_${now}`;
+        const testEventIdFail = `evt_pg_fail_${now}`;
+        const testEventIdPaid = `evt_pg_paid_${now}`;
+        const expectedAmount = 250000;
+        const expectedCurrency = 'INR';
+
+        // 1. Ingest initial failed payment event
         await processEvent(repository, {
-          eventId: `evt_pg_fail_${Date.now()}`,
+          eventId: testEventIdFail,
           eventType: 'payment.failed',
           paymentId: testPaymentId,
-          orderId: `order_pg_${Date.now()}`,
-          amount: 250000,
-          currency: 'INR',
+          orderId: testOrderId,
+          amount: expectedAmount,
+          currency: expectedCurrency,
           paymentStatus: 'failed',
           failureReason: 'timeout',
-          timestamp: new Date().toISOString()
+          timestamp: new Date(now).toISOString()
         });
 
-        const cases = await repository.listCases();
-        const testCase = cases.find((c) => c.paymentId === testPaymentId);
+        const testCase = await repository.findCaseByPaymentId(testPaymentId);
         expect(testCase).toBeDefined();
+        expect(testCase.riskStatus).toBe('RECOVERABLE');
+        expect(testCase.recoveredAmount).toBe(0);
 
+        // 2. Create executed recovery action (CREATE_PAYMENT_LINK)
         const action = await repository.createAction({
           recoveryCaseId: testCase.id,
           actionType: 'CREATE_PAYMENT_LINK',
@@ -684,35 +696,88 @@ describe('Milestone 5 — Outcome Reconciliation & Verified Revenue Attribution'
           policyVersion: 'recoverai-policy-v1',
           idempotencyKey: `razorpay_case_${testCase.id}_plink_v1`,
           provider: 'razorpay',
-          providerActionId: `plink_pg_${Date.now()}`,
-          paymentLinkUrl: 'https://rzp.io/i/test_pg',
-          amount: 250000,
-          currency: 'INR'
+          providerActionId: testPlinkId,
+          paymentLinkUrl: `https://rzp.io/i/test_pg_${now}`,
+          amount: expectedAmount,
+          currency: expectedCurrency
         });
+        expect(action).toBeDefined();
+        expect(action.status).toBe('EXECUTED');
 
-        const outcome = await repository.createOutcome({
-          recoveryCaseId: testCase.id,
-          recoveryActionId: action.id,
-          provider: 'razorpay',
-          providerEventId: `rzp_evt_pg_paid_${Date.now()}`,
-          providerPaymentLinkId: action.providerActionId,
-          providerPaymentId: `pay_pg_cust_${Date.now()}`,
-          amountExpected: 250000,
-          amountPaid: 250000,
-          currency: 'INR',
-          outcome: 'PAID',
-          verified: true,
-          verificationReason: 'Verified by PostgreSQL integration test',
-          providerTimestamp: new Date().toISOString()
-        });
+        // 3. Exercise production reconciliation path via reconcileOutcome
+        const normalizedPaidEvent = {
+          eventId: testEventIdPaid,
+          eventType: 'payment_link.paid',
+          paymentLinkId: testPlinkId,
+          paymentId: `pay_pg_cust_${now}`,
+          referenceId: `razorpay_case_${testCase.id}_plink_v1`,
+          amount: expectedAmount,
+          amountPaid: expectedAmount,
+          currency: expectedCurrency,
+          timestamp: new Date(now + 1000).toISOString()
+        };
 
-        expect(outcome.verified).toBe(true);
-        expect(outcome.amountPaid).toBe(250000);
+        const reconResult = await reconcileOutcome(repository, normalizedPaidEvent);
+        expect(reconResult.isOutcome).toBe(true);
+        expect(reconResult.reconciled).toBe(true);
 
-        const fetchedOutcomes = await repository.findOutcomesByCaseId(testCase.id);
-        expect(fetchedOutcomes.some((o) => o.id === outcome.id)).toBe(true);
+        // 4. Assert: recovery action status = OUTCOME_CONFIRMED
+        const actions = await repository.findActionsByCaseId(testCase.id);
+        const updatedAction = actions.find((a) => a.id === action.id);
+        expect(updatedAction).toBeDefined();
+        expect(updatedAction.status).toBe('OUTCOME_CONFIRMED');
+
+        // 5. Assert: recovery case fields
+        const updatedCase = await repository.findCaseByPaymentId(testPaymentId);
+        expect(updatedCase.riskStatus).toBe('RESOLVED');
+        expect(updatedCase.outcome).toBe('RECOVERED');
+        expect(updatedCase.actionStatus).toBe('RECOVERED');
+        expect(updatedCase.recoveredAmount).toBe(expectedAmount);
+
+        // 6. Assert: recovery_outcomes row exists with verified = true
+        const outcomes = await repository.findOutcomesByCaseId(testCase.id);
+        expect(outcomes.length).toBeGreaterThanOrEqual(1);
+        const verifiedOutcome = outcomes.find((o) => o.recoveryActionId === action.id);
+        expect(verifiedOutcome).toBeDefined();
+        expect(verifiedOutcome.verified).toBe(true);
+        expect(verifiedOutcome.amountPaid).toBe(expectedAmount);
+        expect(verifiedOutcome.currency).toBe(expectedCurrency);
+        expect(verifiedOutcome.outcome).toBe('PAID');
+
+        // 7. Assert: no duplicate revenue attribution occurs
+        // A. Exact duplicate delivery of the paid webhook
+        const duplicateRecon = await reconcileOutcome(repository, normalizedPaidEvent);
+        expect(duplicateRecon.duplicate).toBe(true);
+
+        // B. Second distinct provider event attempting to credit the same action
+        const secondPaidEvent = {
+          eventId: `evt_pg_paid_second_${now}`,
+          eventType: 'payment_link.paid',
+          paymentLinkId: testPlinkId,
+          paymentId: `pay_pg_cust_second_${now}`,
+          referenceId: `razorpay_case_${testCase.id}_plink_v1`,
+          amount: expectedAmount,
+          amountPaid: expectedAmount,
+          currency: expectedCurrency,
+          timestamp: new Date(now + 2000).toISOString()
+        };
+        const secondRecon = await reconcileOutcome(repository, secondPaidEvent);
+        expect(secondRecon.alreadyReconciled).toBe(true);
+
+        // C. Verify case recovered_amount is not double-counted
+        const finalCase = await repository.findCaseByPaymentId(testPaymentId);
+        expect(finalCase.recoveredAmount).toBe(expectedAmount);
+
+        // D. Verify only one verified outcome exists for this action
+        const finalOutcomes = await repository.findOutcomesByCaseId(testCase.id);
+        const verifiedList = finalOutcomes.filter((o) => o.recoveryActionId === action.id && o.verified === true);
+        expect(verifiedList).toHaveLength(1);
       } catch (err) {
-        // Postgres not available in this test environment
+        if (err.code === 'ECONNREFUSED' || err.message?.includes('connect')) {
+          // Postgres not available in this environment
+        } else {
+          throw err;
+        }
       } finally {
         const { closePool } = require('../src/db/pool');
         await closePool();

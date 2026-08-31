@@ -1,5 +1,5 @@
-﻿"""
-RecoverAI Evaluation â€” Mathematical & Statistical Utilities
+"""
+RecoverAI Evaluation — Mathematical & Statistical Utilities
 Provides deterministic SHA-256 hashing, Wilson score confidence intervals,
 and paired statistical significance testing (McNemar test & paired bootstrap CI).
 """

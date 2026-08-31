@@ -1,5 +1,5 @@
-﻿"""
-RecoverAI Evaluation â€” Master Benchmark Runner
+"""
+RecoverAI Evaluation — Master Benchmark Runner
 Executes the reproducible batch evaluation comparing Rules-Only Baseline vs RecoverAI.
 Includes SHA-256 integrity verification, authentic Wilson score intervals, McNemar paired testing,
 and explicit Gross vs Eligible recovery rate reporting.
@@ -45,7 +45,7 @@ def generate_svg_chart(metrics: dict, out_path: Path):
         '  .legend { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #475569; }',
         '</style>',
         '<rect width="100%" height="100%" fill="#ffffff" rx="8" />',
-        '<text x="24" y="32" class="title">RecoverAI vs. Rules-Only Baseline â€” Eligible Recovery Rate by Playbook</text>',
+        '<text x="24" y="32" class="title">RecoverAI vs. Rules-Only Baseline — Eligible Recovery Rate by Playbook</text>',
         f'<text x="24" y="52" class="subtitle">Reproducible Stratified Benchmark (N = {metrics["metadata"]["total_cases"]} cases, Seed = {metrics["metadata"]["seed"]})</text>',
         # Legend
         '<rect x="520" y="24" width="14" height="14" fill="#94a3b8" rx="2" />',
@@ -95,16 +95,15 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
     ci_base = ci["baseline_wilson_score_ci_95"]
     ci_rec = ci["recoverai_wilson_score_ci_95"]
     boot_ci = ci["incremental_revenue_bootstrap_ci_95"]["bootstrap_ci_95"]
-
     md = [
-        "# RecoverAI â€” Milestone 6 Batch Evaluation & Methodology Report",
+        "# RecoverAI — Milestone 6 Batch Evaluation & Methodology Report",
         "",
-        f"**Benchmark Scope**: Comparative Evaluation across All 7 Track 03 Recovery Playbooks  ",
-        f"**Sample Size**: {meta['total_cases']} Stratified Cases ({meta['cases_per_playbook']} per Playbook; {fm['eligible_cases']} Eligible Active Cases)  ",
-        f"**Random Seed**: `{meta['seed']}` (100% Deterministic & Multi-Process Reproducible)  ",
-        f"**Methodology**: Seeded synthetic simulation using a single shared ground-truth customer response model  ",
-        f"**Corpus SHA-256**: `{corpus_hash}`  ",
-        f"**Summary SHA-256**: `{summary_hash}`  ",
+        f"- **Benchmark Scope**: Comparative Evaluation across All 7 Track 03 Recovery Playbooks",
+        f"- **Sample Size**: {meta['total_cases']} Stratified Cases ({meta['cases_per_playbook']} per Playbook; {fm['eligible_cases']} Eligible Active Cases)",
+        f"- **Random Seed**: `{meta['seed']}` (100% Deterministic & Multi-Process Reproducible)",
+        f"- **Methodology**: Seeded synthetic simulation using a single shared ground-truth customer response model",
+        f"- **Corpus SHA-256**: `{corpus_hash}`",
+        f"- **Summary SHA-256**: `{summary_hash}`",
         "",
         "> [!IMPORTANT]",
         "> **Evaluation Scope Disclaimer**: The offline benchmark evaluates the RecoverAI decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is exercised live in the operational product.",
@@ -113,17 +112,17 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "",
         "## 1. Executive Summary & Financial Effectiveness",
         "",
-        "| Metric | Rules-Only Baseline | RecoverAI Engine | Incremental Lift (Î”) | Metric Scope |",
+        "| Metric | Rules-Only Baseline | RecoverAI Engine | Incremental Lift (Delta) | Metric Scope |",
         "|---|---|---|---|---|",
-        f"| **Total Revenue at Risk** | â‚¹{fm['total_revenue_at_risk']/100:,.2f} | â‚¹{fm['total_revenue_at_risk']/100:,.2f} | â€” | All {meta['total_cases']} Cases |",
-        f"| **Eligible Recovery Value** | â‚¹{fm['eligible_recovery_value']/100:,.2f} | â‚¹{fm['eligible_recovery_value']/100:,.2f} | â€” | {fm['eligible_cases']} Active Cases (Excludes cancelled/refunded) |",
-        f"| **Revenue Recovered** | â‚¹{fm['baseline_recovered_revenue']/100:,.2f} | **â‚¹{fm['recoverai_recovered_revenue']/100:,.2f}** | **+â‚¹{fm['incremental_recovered_revenue']/100:,.2f} (+{fm['revenue_lift_percentage']}%)** | Actual Recovered Capital |",
+        f"| **Total Revenue at Risk** | INR {fm['total_revenue_at_risk']/100:,.2f} | INR {fm['total_revenue_at_risk']/100:,.2f} | — | All {meta['total_cases']} Cases |",
+        f"| **Eligible Recovery Value** | INR {fm['eligible_recovery_value']/100:,.2f} | INR {fm['eligible_recovery_value']/100:,.2f} | — | {fm['eligible_cases']} Active Cases (Excludes cancelled/refunded) |",
+        f"| **Simulated Revenue Recovered** | INR {fm['baseline_recovered_revenue']/100:,.2f} | **INR {fm['recoverai_recovered_revenue']/100:,.2f}** | **+INR {fm['incremental_recovered_revenue']/100:,.2f} (+{fm['revenue_lift_percentage']}%)** | Simulated recovered revenue under the shared response model |",
         f"| **Eligible Recovery Rate** | {fm['baseline_eligible_recovery_rate']*100:.2f}% | **{fm['recoverai_eligible_recovery_rate']*100:.2f}%** | **+{fm['incremental_eligible_recovery_rate']*100:.2f}%** | Primary Financial Effectiveness |",
         f"| **Gross Recovery Rate** | {fm['baseline_gross_recovery_rate']*100:.2f}% | **{fm['recoverai_gross_recovery_rate']*100:.2f}%** | **+{fm['incremental_gross_recovery_rate']*100:.2f}%** | Descriptive Rate (Total Risk Denominator) |",
         f"| **95% Wilson Score CI (Rate)** | [{ci_base['lower']*100:.1f}%, {ci_base['upper']*100:.1f}%] | **[{ci_rec['lower']*100:.1f}%, {ci_rec['upper']*100:.1f}%]** | Wilson Score formula | Case-level binary recovery rate |",
-        f"| **95% Bootstrap CI (Î” Revenue)** | â€” | â€” | **[+â‚¹{boot_ci['lower']/100:,.2f}, +â‚¹{boot_ci['upper']/100:,.2f}]** | 1,000 paired resamples on monetary lift |",
-        f"| **Paired Statistical Test** | â€” | â€” | **{sig['test_name']}**: $\\chi^2 = {sig['chi2_statistic']}$, $p = {sig['formatted_p_value']}$ ({'Significant at p < 0.01' if sig['significant_at_p01'] else 'Not significant'}) | Case-level marginal homogeneity in simulation |",
-        f"| **Simulation Net Economic Value** | â‚¹{fm['baseline_simulated_net_economic_value']/100:,.2f} | **â‚¹{fm['recoverai_simulated_net_economic_value']/100:,.2f}** | **+â‚¹{fm['incremental_simulated_net_economic_value']/100:,.2f}** | Modeled economics (API costs, labor, friction) |",
+        f"| **95% Bootstrap CI (Delta Revenue)** | — | — | **[+INR {boot_ci['lower']/100:,.2f}, +INR {boot_ci['upper']/100:,.2f}]** | 1,000 paired resamples on monetary lift |",
+        f"| **Paired Statistical Test** | — | — | **{sig['test_name']}**: $\\chi^2 = {sig['chi2_statistic']}$, $p = {sig['formatted_p_value']}$ ({'Significant at p < 0.01' if sig['significant_at_p01'] else 'Not significant'}) | Case-level marginal homogeneity in simulation |",
+        f"| **Simulation Net Economic Value** | INR {fm['baseline_simulated_net_economic_value']/100:,.2f} | **INR {fm['recoverai_simulated_net_economic_value']/100:,.2f}** | **+INR {fm['incremental_simulated_net_economic_value']/100:,.2f}** | Modeled economics (API costs, labor, friction) |",
         "",
         "> [!NOTE]",
         "> **Statistical Note**: Statistical significance applies to this synthetic paired benchmark cohort ($N = 560$) and should not be interpreted as evidence of real-world merchant impact.",
@@ -139,20 +138,20 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         f"| **Duplicate Actions Prevented** | 0 | **{sm['duplicate_actions_prevented_by_policy']} actions prevented** | RecoverAI policy enforced 30-min cooldown window |",
         f"| **Terminal / Refund Violations** | {sm['terminal_violations_baseline']} attempts | **{sm['terminal_violations_recoverai']} attempts** | Attempting recovery on cancelled/refunded transactions |",
         f"| **Stopping Rule Activations** | 0 (Ignored) | **{sm['stopping_rule_activations']} cases safely stopped** | Suppressed invalid/terminal recovery |",
-        f"| **High-Value Escalations (> â‚¹25k)** | 0 (Blindly executed) | **{sm['policy_decisions']['review']} cases escalated ({sm['escalation_rate']*100:.1f}%)** | Merchant operations human review |",
+        f"| **High-Value Escalations (> INR 25k)** | 0 (Blindly executed) | **{sm['policy_decisions']['review']} cases escalated ({sm['escalation_rate']*100:.1f}%)** | Merchant operations human review |",
         f"| **Over-Recovery Incidents** | Multiple duplicate links | **0 (Zero)** | Guaranteed single outcome attribution |",
         "",
         "---",
         "",
         "## 3. Seven Playbooks Comparative Breakdown",
         "",
-        "| Playbook | Cases (Eligible) | Revenue at Risk | Eligible Value | Baseline Recovered | RecoverAI Recovered | Baseline Elig. Rate | RecoverAI Elig. Rate | Lift (Î”) | Unsafe (Base vs Rec) |",
-        "|---|---|---|---|---|---|---|---|---|---|"
+        "| Playbook | Cases (Eligible) | Revenue at Risk | Eligible Value | Baseline Simulated Recovered | RecoverAI Simulated Recovered | Baseline Elig. Rate | RecoverAI Elig. Rate | Lift (Delta) | Unsafe (Base vs Rec) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     for pb in breakdown:
         md.append(
-            f"| **{pb['playbook_name']}** | {pb['total_cases']} ({pb['eligible_cases']}) | â‚¹{pb['revenue_at_risk']/100:,.2f} | â‚¹{pb['eligible_recovery_value']/100:,.2f} | â‚¹{pb['baseline_recovered']/100:,.2f} | **â‚¹{pb['recoverai_recovered']/100:,.2f}** | {pb['baseline_eligible_recovery_rate']*100:.1f}% | **{pb['recoverai_eligible_recovery_rate']*100:.1f}%** | **+{pb['incremental_eligible_recovery_rate']*100:.1f}%** | {pb['unsafe_actions_baseline']} vs **{pb['unsafe_actions_recoverai']}** |"
+            f"| **{pb['playbook_name']}** | {pb['total_cases']} ({pb['eligible_cases']}) | INR {pb['revenue_at_risk']/100:,.2f} | INR {pb['eligible_recovery_value']/100:,.2f} | INR {pb['baseline_recovered']/100:,.2f} | **INR {pb['recoverai_recovered']/100:,.2f}** | {pb['baseline_eligible_recovery_rate']*100:.1f}% | **{pb['recoverai_eligible_recovery_rate']*100:.1f}%** | **+{pb['incremental_eligible_recovery_rate']*100:.1f}%** | {pb['unsafe_actions_baseline']} vs **{pb['unsafe_actions_recoverai']}** |"
         )
 
     md.extend([
@@ -161,16 +160,16 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "",
         "## 4. Performance Decomposition & Tradeoff Analysis",
         "",
-        "### Where RecoverAI Gains Performance (+â‚¹2,264,488.00 Net Gain):",
-        "1. **B2B Receivables (+â‚¹990,000.00, +20.7% Eligible Lift)**: Routing large corporate invoices (> â‚¹25k) to manual review resolves procurement blockers that unassisted payment links cannot address.",
-        "2. **Failed Subscriptions & Mandate Retry (+â‚¹818,198.00 Combined Lift)**: Sequencing retries to align with customer salary cycles (1stâ€“5th) avoids immediate empty balance declines.",
-        "3. **Hinglish Voice Recovery & Promise-to-Pay (+â‚¹756,081.00 Combined Lift)**: Vernacular assistance helps Tier-2/Tier-3 customers with authentication confusion; promise tracking suppresses premature spam.",
+        "### Where RecoverAI Gains Performance (+INR 2,264,488.00 Simulated Revenue Lift):",
+        "1. **B2B Receivables (+INR 990,000.00, +20.7% Eligible Lift)**: Routing large corporate invoices (> INR 25k) to manual review resolves procurement blockers that unassisted payment links cannot address.",
+        "2. **Failed Subscriptions & Mandate Retry (+INR 818,198.00 Combined Lift)**: Sequencing retries to align with customer salary cycles (1st–5th) avoids immediate empty balance declines.",
+        "3. **Hinglish Voice Recovery & Promise-to-Pay (+INR 756,081.00 Combined Lift)**: Vernacular assistance helps Tier-2/Tier-3 customers with authentication confusion; promise tracking suppresses premature spam.",
         "",
         "### Why Payment Degradation & Checkout Drop-off Show Apparent Baseline Advantage in Unconstrained Gross Metrics:",
         "1. **Cooldown & Duplicate Attempt Tradeoff**: Baseline ignores the 30-minute cooldown rule and repeatedly fires payment links on cases where a link was recently created. In the simulation, raw spam occasionally converts at the cost of high customer friction (8% penalty) and 44 duplicate violations.",
         "2. **Terminal State Refusals**: In Checkout Drop-off, 9 cases were cancelled carts. Baseline attempted all 9 (unsafe); RecoverAI stopped all 9 (`NO_ACTION (BLOCK)`).",
-        "3. **High-Value Threshold Escalation**: RecoverAI escalates transactions > â‚¹25,000 to `REQUEST_MANUAL_REVIEW`, avoiding unmonitored automated execution.",
-        "4. **Simulation Net Economic Truth**: When friction penalties and labor costs are accounted for, RecoverAI delivers **â‚¹91,425.08** in Simulation Net Economic Value vs **â‚¹65,797.92** for Baseline with **0 unsafe actions**.",
+        "3. **High-Value Threshold Escalation**: RecoverAI escalates transactions > INR 25,000 to `REQUEST_MANUAL_REVIEW`, avoiding unmonitored automated execution.",
+        "4. **Simulation Net Economic Truth**: When friction penalties and labor costs are accounted for, RecoverAI delivers **INR 91,425.08** in Simulation Net Economic Value vs **INR 65,797.92** for Baseline with **0 unsafe actions**.",
         "",
         "---",
         "",
@@ -179,7 +178,7 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "| Intervention Action | Rules-Only Baseline Count | RecoverAI Engine Count | RecoverAI Share | Role in Engine |",
         "|---|---|---|---|---|",
         f"| `CREATE_PAYMENT_LINK` | {meta['total_cases']} (100.0%) | {aim.get('recoverai_action_distribution', {}).get('CREATE_PAYMENT_LINK', 0)} | {aim.get('recoverai_action_distribution', {}).get('CREATE_PAYMENT_LINK', 0)/meta['total_cases']*100:.1f}% | Automated payment link execution |",
-        f"| `REQUEST_MANUAL_REVIEW` | 0 (0.0%) | {aim.get('recoverai_action_distribution', {}).get('REQUEST_MANUAL_REVIEW', 0)} | {aim.get('recoverai_action_distribution', {}).get('REQUEST_MANUAL_REVIEW', 0)/meta['total_cases']*100:.1f}% | Escalation for transactions > â‚¹25k |",
+        f"| `REQUEST_MANUAL_REVIEW` | 0 (0.0%) | {aim.get('recoverai_action_distribution', {}).get('REQUEST_MANUAL_REVIEW', 0)} | {aim.get('recoverai_action_distribution', {}).get('REQUEST_MANUAL_REVIEW', 0)/meta['total_cases']*100:.1f}% | Escalation for transactions > INR 25k |",
         f"| `NO_ACTION` (Blocked) | 0 (0.0%) | {aim.get('recoverai_action_distribution', {}).get('NO_ACTION', 0)} | {aim.get('recoverai_action_distribution', {}).get('NO_ACTION', 0)/meta['total_cases']*100:.1f}% | Policy suppression (terminal/cooldown) |",
         f"| `SCHEDULE_RETRY_WINDOW` | 0 (0.0%) | {aim.get('recoverai_action_distribution', {}).get('SCHEDULE_RETRY_WINDOW', 0)} | {aim.get('recoverai_action_distribution', {}).get('SCHEDULE_RETRY_WINDOW', 0)/meta['total_cases']*100:.1f}% | Mandate/subscription sequencing |",
         f"| `DISPATCH_VERNACULAR_ASSIST` | 0 (0.0%) | {aim.get('recoverai_action_distribution', {}).get('DISPATCH_VERNACULAR_ASSIST', 0)} | {aim.get('recoverai_action_distribution', {}).get('DISPATCH_VERNACULAR_ASSIST', 0)/meta['total_cases']*100:.1f}% | Bilingual assistance |",
@@ -202,11 +201,11 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "## 7. Economic Model Assumptions & Limitations",
         "",
         "1. **Intervention Cost Assumptions (Modeled)**:",
-        "   - Payment Link API call: â‚¹0.50 (50 paise)",
-        "   - Human Merchant Agent Review: â‚¹25.00 (2,500 paise)",
-        "   - Scheduled Retry Window: â‚¹0.20 (20 paise)",
-        "   - Vernacular Assist: â‚¹1.00 (100 paise)",
-        "   - Promise-to-Pay Record: â‚¹0.00",
+        "   - Payment Link API call: INR 0.50 (50 paise)",
+        "   - Human Merchant Agent Review: INR 25.00 (2,500 paise)",
+        "   - Scheduled Retry Window: INR 0.20 (20 paise)",
+        "   - Vernacular Assist: INR 1.00 (100 paise)",
+        "   - Promise-to-Pay Record: INR 0.00",
         "2. **Customer Friction Penalties (Modeled)**:",
         "   - Contextual timely intervention: 2% of transaction amount",
         "   - Duplicate retry within cooldown: 8% of transaction amount",
