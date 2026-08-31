@@ -102,6 +102,7 @@ async function executePaymentLink(repository, {
     provider: 'razorpay',
     amount: recoveryCase.amount,
     currency: recoveryCase.currency,
+    createdAt: now().toISOString(),
     requestMetadata: {
       caseId: recoveryCase.id,
       paymentId: recoveryCase.paymentId,

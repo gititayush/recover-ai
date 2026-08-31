@@ -1,4 +1,14 @@
-const supportedEventTypes = new Set(['payment.failed', 'payment.authorized', 'payment.captured', 'order.paid']);
+const supportedEventTypes = new Set([
+  'payment.failed',
+  'payment.authorized',
+  'payment.captured',
+  'payment.refunded',
+  'order.paid',
+  'payment_link.paid',
+  'payment_link.partially_paid',
+  'payment_link.cancelled',
+  'payment_link.expired'
+]);
 
 class RazorpayNormalizationError extends Error {
   constructor(message, statusCode = 400) {
@@ -27,32 +37,76 @@ function normalizeRazorpayWebhook(providerEventId, payload) {
     throw new RazorpayNormalizationError('Unsupported Razorpay event type.', 202);
   }
 
+  const paymentLink = payload.payload?.payment_link?.entity;
   const payment = payload.payload?.payment?.entity;
   const order = payload.payload?.order?.entity;
-  if (!payment || typeof payment !== 'object') {
-    throw new RazorpayNormalizationError('Supported Razorpay events require a payment entity.');
+
+  if (!payment && !paymentLink && !order) {
+    throw new RazorpayNormalizationError('Supported Razorpay events require a payment or payment_link entity.');
   }
 
-  const paymentId = firstString(payment.id);
-  const orderId = firstString(payment.order_id, order?.id);
-  const currency = firstString(payment.currency);
-  const timestamp = toIsoTimestamp(payment.created_at) || toIsoTimestamp(order?.created_at);
-  if (!paymentId || !Number.isInteger(payment.amount) || payment.amount < 0 || !currency || !timestamp) {
-    throw new RazorpayNormalizationError('Razorpay payment entity is missing required normalized event fields.');
+  const paymentLinkId = firstString(paymentLink?.id);
+  const referenceId = firstString(paymentLink?.reference_id);
+  const paymentId = firstString(payment?.id, paymentLink?.id, order?.id);
+  const orderId = firstString(payment?.order_id, order?.id, paymentLink?.order_id);
+  const currency = firstString(paymentLink?.currency, payment?.currency, order?.currency);
+
+  const amount = Number.isInteger(paymentLink?.amount)
+    ? paymentLink.amount
+    : Number.isInteger(payment?.amount)
+      ? payment.amount
+      : Number.isInteger(order?.amount)
+        ? order.amount
+        : null;
+
+  const amountPaid = Number.isInteger(paymentLink?.amount_paid)
+    ? paymentLink.amount_paid
+    : Number.isInteger(payment?.amount)
+      ? payment.amount
+      : Number.isInteger(order?.amount_paid)
+        ? order.amount_paid
+        : amount;
+
+  const timestamp = toIsoTimestamp(paymentLink?.updated_at)
+    || toIsoTimestamp(paymentLink?.created_at)
+    || toIsoTimestamp(payment?.created_at)
+    || toIsoTimestamp(order?.created_at);
+
+  if (!paymentId || typeof amount !== 'number' || amount < 0 || !currency || !timestamp) {
+    throw new RazorpayNormalizationError('Razorpay payload entity is missing required normalized event fields.');
   }
+
+  const paymentStatus = firstString(paymentLink?.status, payment?.status, order?.status) || eventType.split('.')[1];
+
+  let failureReason = null;
+  if (eventType === 'payment.failed') {
+    failureReason = firstString(payment?.error_description, payment?.error_reason, payment?.error_code);
+  }
+
+  const customerReference = firstString(
+    payment?.customer_id,
+    payment?.contact,
+    payment?.email,
+    paymentLink?.customer?.contact,
+    paymentLink?.customer?.email,
+    paymentLink?.customer?.name,
+    order?.customer_id,
+    order?.receipt
+  );
 
   return {
     eventId: providerEventId,
     eventType,
     paymentId,
     orderId,
-    amount: payment.amount,
+    paymentLinkId,
+    referenceId,
+    amount,
+    amountPaid,
     currency,
-    paymentStatus: firstString(payment.status) || eventType.split('.')[1],
-    failureReason: eventType === 'payment.failed'
-      ? firstString(payment.error_description, payment.error_reason, payment.error_code)
-      : null,
-    customerReference: firstString(payment.customer_id, payment.contact, payment.email, order?.customer_id, order?.receipt),
+    paymentStatus,
+    failureReason,
+    customerReference,
     timestamp
   };
 }

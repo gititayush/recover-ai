@@ -17,6 +17,11 @@ const scenarios = [
   ['replay_evt_authorized_001', 'payment.authorized.json'],
   ['replay_evt_captured_001', 'payment.captured.json'],
   ['replay_evt_order_paid_001', 'order.paid.json'],
+  ['replay_evt_plink_paid_001', 'payment_link.paid.json'],
+  ['replay_evt_plink_partial_001', 'payment_link.partially_paid.json'],
+  ['replay_evt_plink_wrong_amt_001', 'payment_link.wrong_amount.json'],
+  ['replay_evt_plink_wrong_curr_001', 'payment_link.wrong_currency.json'],
+  ['replay_evt_plink_unknown_001', 'payment_link.unknown_id.json'],
   ['replay_evt_duplicate_001', 'payment.failed.minimal.json'],
   ['replay_evt_duplicate_001', 'payment.failed.minimal.json']
 ];

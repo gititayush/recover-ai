@@ -6,11 +6,13 @@ class InMemoryRecoveryRepository {
     this.audits = [];
     this.aiDiagnoses = [];
     this.actions = [];
+    this.outcomes = [];
     this.nextCaseId = 1;
     this.nextAuditId = 1;
     this.nextProviderWebhookEventId = 1;
     this.nextAiDiagnosisId = 1;
     this.nextActionId = 1;
+    this.nextOutcomeId = 1;
   }
 
   async createEvent(event) {
@@ -50,6 +52,7 @@ class InMemoryRecoveryRepository {
       id: this.nextCaseId++,
       actionStatus: 'NOT_STARTED',
       outcome: null,
+      recoveredAmount: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...data
@@ -111,6 +114,10 @@ class InMemoryRecoveryRepository {
     return this.actions.find((a) => a.idempotencyKey === key) || null;
   }
 
+  async findActionByPaymentLinkId(paymentLinkId) {
+    return this.actions.find((a) => a.providerActionId === paymentLinkId) || null;
+  }
+
   async findActionsByCaseId(recoveryCaseId) {
     return this.actions.filter((a) => a.recoveryCaseId === Number(recoveryCaseId)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
@@ -118,6 +125,68 @@ class InMemoryRecoveryRepository {
   async getLatestActionForCase(recoveryCaseId) {
     const actions = await this.findActionsByCaseId(recoveryCaseId);
     return actions.at(-1) || null;
+  }
+
+  async createOutcome(data) {
+    const existing = this.outcomes.find((o) => o.provider === data.provider && o.providerEventId === data.providerEventId);
+    if (existing) return existing;
+    const outcome = {
+      id: this.nextOutcomeId++,
+      recoveryActionId: null,
+      providerPaymentLinkId: null,
+      providerPaymentId: null,
+      providerOrderId: null,
+      verified: false,
+      receivedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      ...data
+    };
+    this.outcomes.push(outcome);
+    return outcome;
+  }
+
+  async findOutcomeByEventId(provider, providerEventId) {
+    return this.outcomes.find((o) => o.provider === provider && o.providerEventId === providerEventId) || null;
+  }
+
+  async findOutcomeByActionId(recoveryActionId) {
+    return this.outcomes.find((o) => o.recoveryActionId === Number(recoveryActionId)) || null;
+  }
+
+  async findOutcomesByCaseId(recoveryCaseId) {
+    return this.outcomes.filter((o) => o.recoveryCaseId === Number(recoveryCaseId)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }
+
+  async getRecoveryMetrics() {
+    const openCases = this.cases.filter((c) => ['OPEN', 'RECOVERABLE'].includes(c.riskStatus));
+    const resolvedCases = this.cases.filter((c) => c.riskStatus === 'RESOLVED');
+    const revenueAtRisk = openCases.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+    const verifiedOutcomes = this.outcomes.filter((o) => o.verified === true);
+    const revenueRecovered = verifiedOutcomes.reduce((sum, o) => sum + Number(o.amountPaid || 0), 0);
+
+    const totalPotential = revenueAtRisk + revenueRecovered;
+    const recoveryRate = totalPotential > 0 ? Number((revenueRecovered / totalPotential).toFixed(4)) : 0;
+
+    const executedActions = this.actions.filter((a) => ['EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status));
+    const confirmedRecoveries = verifiedOutcomes.length;
+    const pendingRecoveries = this.actions.filter((a) => a.status === 'EXECUTED').length;
+    const blockedCases = this.actions.filter((a) => a.status === 'BLOCKED').length;
+    const reviewRequiredCases = this.actions.filter((a) => a.status === 'REVIEW_REQUIRED').length;
+
+    return {
+      revenue_at_risk: revenueAtRisk,
+      revenue_recovered: revenueRecovered,
+      recovery_rate: recoveryRate,
+      total_cases: this.cases.length,
+      open_cases: openCases.length,
+      resolved_cases: resolvedCases.length,
+      executed_actions: executedActions.length,
+      confirmed_recoveries: confirmedRecoveries,
+      pending_recoveries: pendingRecoveries,
+      blocked_cases: blockedCases,
+      review_required_cases: reviewRequiredCases
+    };
   }
 
   async listCases() {
@@ -131,7 +200,8 @@ class InMemoryRecoveryRepository {
       recoveryCase,
       events: await this.getEventsForPayment(recoveryCase.paymentId),
       auditEvents: this.audits.filter((audit) => audit.recoveryCaseId === recoveryCase.id).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
-      actions: await this.findActionsByCaseId(recoveryCase.id)
+      actions: await this.findActionsByCaseId(recoveryCase.id),
+      outcomes: await this.findOutcomesByCaseId(recoveryCase.id)
     };
   }
 }

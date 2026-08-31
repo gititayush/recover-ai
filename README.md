@@ -5,7 +5,7 @@ RecoverAI is an AI-assisted revenue recovery system for the Razorpay Buildathon 
 ## Current architecture
 
 ```text
-Razorpay Webhook / Event
+Razorpay Webhook / Event (payment.failed)
   ↓
 Normalized Event Service → Deterministic Risk Detector → RecoveryCase + Audit Trail
   ↓
@@ -15,12 +15,22 @@ Deterministic Policy Engine (Authoritative Guardrails)
   ↓ (ALLOW)
 Bounded Recovery Executor → Razorpay Standard Payment Link API (Test Mode)
   ↓
-Recovery Action Persisted & Audited (ACTION EXECUTED)
+Recovery Action Persisted & Audited (ACTION EXECUTED / PAYMENT PENDING)
   ↓
-Outcome Reconciliation & Money Recovered (Future Milestone)
+Customer Payment via Payment Link
+  ↓
+Razorpay Outcome Webhook (payment_link.paid / payment.captured / order.paid)
+  ↓
+Outcome Reconciliation Service (Multi-Strategy Correlation + Amount/Currency Integrity Verification)
+  ↓ (VERIFIED)
+Recovery Action: OUTCOME_CONFIRMED | Case: RESOLVED / RECOVERED (recovered_amount credited)
+  ↓
+Audit Trail: RECOVERY_OUTCOME_RECEIVED → RECOVERY_OUTCOME_VERIFIED → REVENUE_RECOVERED → CASE_UPDATED
 ```
 
-**Key Architectural Rule**: AI is advisory; the Policy Engine is authoritative. The executor is the ONLY component permitted to invoke external Razorpay payment infrastructure.
+**Key Architectural Rules**:
+1. **AI is advisory; Policy Engine is authoritative**: The executor is the ONLY component permitted to invoke external Razorpay payment infrastructure.
+2. **Action Execution $\neq$ Revenue Recovered**: Creating a Payment Link marks `ACTION EXECUTED` (status: `EXECUTED`). It does **NOT** equal recovered revenue. Only a verified, amount-matched provider payment event produces `MONEY RECOVERED` (status: `OUTCOME_CONFIRMED`, `recovered_amount` credited).
 
 See [docs/architecture.md](docs/architecture.md) for full technical details.
 
@@ -74,10 +84,12 @@ The utility reads raw fixture bytes, signs each payload with `RAZORPAY_WEBHOOK_S
 ## APIs
 
 - `GET /health`
+- `GET /api/recovery/metrics` — returns aggregate revenue metrics: `revenue_at_risk`, `revenue_recovered`, `recovery_rate`, `open_cases`, `resolved_cases`, `confirmed_recoveries`, `pending_recoveries`.
 - `POST /api/events` — accepts a normalized payment event. Required: `eventId`, `eventType`, `paymentId`, `amount` (paise), `currency`, and `timestamp`.
-- `POST /api/webhooks/razorpay` — receives Razorpay Test Mode webhooks. Verifies HMAC-SHA256 signature, deduplicates provider event IDs, stores authenticated raw payloads, normalizes supported events, and updates recovery cases.
+- `POST /api/webhooks/razorpay` — receives Razorpay Test Mode webhooks. Verifies HMAC-SHA256 signature, deduplicates provider event IDs, stores authenticated raw payloads, normalizes supported events, reconciles recovery outcomes, and updates recovery cases.
 - `GET /api/cases` — lists all recovery cases.
-- `GET /api/cases/:id` — includes event history, audit timeline, and recovery actions.
+- `GET /api/cases/:id` — includes event history, audit timeline, recovery actions, and verified recovery outcomes.
+- `GET /api/cases/:id/recovery-outcome` — returns outcome records and verification status for a case.
 - `POST /api/cases/:id/diagnosis` — generates or retrieves cached AI diagnosis proposal. Has no financial side effect.
 - `GET /api/cases/:id/diagnosis` — retrieves stored AI diagnosis.
 - `POST /api/cases/:id/policy` — evaluates AI proposal against deterministic policy rules and returns structured decision (`ALLOW`, `REVIEW`, `BLOCK`).
@@ -110,7 +122,20 @@ The recovery executor (`backend/src/actions/paymentLinkExecutor.js`):
 - Stores the returned `provider_action_id` (Payment Link ID) and `payment_link_url`.
 - Records `ACTION_EXECUTION_STARTED` and `ACTION_EXECUTED` (or `ACTION_EXECUTION_FAILED`) audit events.
 
-> **CRITICAL DISTINCTION**: Payment Link creation marks `ACTION EXECUTED`. It does NOT count as `MONEY RECOVERED`. Actual revenue recovery is only attributed when a subsequent successful payment event (`payment.captured` or `order.paid`) is received and verified.
+## Outcome Reconciliation & Revenue Attribution Rules
+
+The outcome reconciliation engine (`backend/src/services/reconciliationService.js`):
+1. **Multi-Strategy Correlation**:
+   - Priority 1: Match by Payment Link ID (`action.provider_action_id == event.paymentLinkId`)
+   - Priority 2: Match by Reference ID (`action.idempotency_key == event.referenceId`)
+   - Priority 3: Match by Case Payment ID / Order ID
+2. **Amount and Currency Verification**:
+   - Compares provider `amountPaid` vs action `amount` and received `currency` vs expected `currency`.
+   - On mismatch: creates `FAILED_MISMATCH` outcome, flags case `REVIEW_REQUIRED`, triggers `RECOVERY_OUTCOME_REJECTED` audit, credits ₹0.
+   - On partial payment: creates `PARTIALLY_PAID` outcome, keeps case open, triggers `RECOVERY_OUTCOME_RECEIVED` audit.
+   - On exact match: creates verified `PAID` outcome, transitions action to `OUTCOME_CONFIRMED`, resolves case with `recovered_amount = amountPaid`, records `REVENUE_RECOVERED` audit.
+3. **Strict Zero Double-Counting**:
+   - Unique constraints on `(provider, provider_event_id)` and partial unique index on `recovery_outcomes(recovery_action_id) WHERE verified = true` guarantee at both database and application levels that no event or action is credited twice.
 
 ## Tests
 
@@ -119,11 +144,11 @@ pnpm test
 pnpm frontend:build
 ```
 
-Automated tests (63+ tests) cover webhook verification, normalization, risk detection, AI diagnosis, evidence grounding, policy rules, executor idempotency, Razorpay client error handling, REST endpoints, audit logs, and PostgreSQL persistence. External Razorpay API calls are cleanly mocked in automated tests.
+Automated tests (82+ tests) cover webhook verification, normalization, risk detection, AI diagnosis, evidence grounding, policy rules, executor idempotency, outcome reconciliation, correlation strategies, amount/currency integrity checks, double-counting protection, metrics computation, REST endpoints, audit logs, and PostgreSQL persistence.
 
 ## Current limitations
 
 - Only `CREATE_PAYMENT_LINK` is enabled as an executable recovery action.
 - Only Razorpay Test Mode keys (`rzp_test_...`) are permitted.
-- Outcome reconciliation across batch metrics is deferred to the next milestone.
+- Batch evaluation and the seven domain playbooks are deferred to future milestones.
 - No autonomous retries, discounts, refunds, customer SMS/email messaging, or money movement outside Standard Payment Links exists.

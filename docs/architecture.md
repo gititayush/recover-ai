@@ -1,4 +1,4 @@
-# RecoverAI Architecture — Milestones 1 to 4
+# RecoverAI Architecture — Milestones 1 to 5
 
 ```mermaid
 flowchart TD
@@ -13,14 +13,19 @@ flowchart TD
   C --> CT[Minimized Case Context]
   CT --> AI[AI Provider / Development Fallback]
   AI --> V[Strict Schema & Evidence Validation]
-  V --> DP[Persisted AI Diagnosis Proposal]
+  DP[Persisted AI Diagnosis Proposal]
+  V --> DP
   DP --> PE[Deterministic Policy Engine]
   PE -->|ALLOW| EX[Bounded Recovery Executor]
   PE -->|REVIEW / BLOCK| AD[Audit Trail & Review Status]
   EX -->|POST /v1/payment_links| RZP[Razorpay Test Mode API]
-  RZP -->|Payment Link Created| RA[recovery_actions Table + ACTION_EXECUTED Audit]
+  RZP -->|Payment Link Created| RA[recovery_actions: EXECUTED + ACTION_EXECUTED Audit]
   RA --> UI[React Operations Dashboard]
-  RZP -.->|Future Payment Event| REC[Outcome Reconciliation & Money Recovered - Next Milestone]
+  RZP -.->|Customer Pays Link / Webhook: payment_link.paid| OR[Outcome Reconciliation Engine]
+  OR -->|Verify ID + Amount + Currency| OC[recovery_outcomes: PAID / verified=true]
+  OC -->|Update Action| RC[recovery_actions: OUTCOME_CONFIRMED]
+  RC -->|Resolve Case| RCC[recovery_cases: RESOLVED / recovered_amount=X]
+  RCC -->|Audit Trail| AT[Audit: RECOVERY_OUTCOME_VERIFIED + REVENUE_RECOVERED]
 ```
 
 ## System Overview
@@ -32,7 +37,7 @@ RecoverAI is structured into strictly separated, bounded layers:
 3. **AI Diagnosis Proposal Layer (Advisory)**: Receives a minimized context (excluding secrets, raw bodies, and PII), generates structured diagnosis proposals (`CREATE_PAYMENT_LINK`, `REQUEST_MANUAL_REVIEW`, `NO_ACTION`), and enforces strict evidence grounding.
 4. **Deterministic Policy Engine (Authoritative)**: Evaluates AI proposals against 12 explicit, reproducible guardrail rules before authorizing any execution.
 5. **Bounded Recovery Executor**: Performs authorized recovery actions against Razorpay Test Mode APIs (`CREATE_PAYMENT_LINK`).
-6. **Outcome Reconciliation (Deferred)**: Reconciles executed recovery actions against subsequent payment completion events to attribute actual recovered revenue.
+6. **Outcome Reconciliation & Truthful Revenue Attribution**: Reconciles executed recovery actions against incoming payment completion events (`payment_link.paid`, `payment.captured`, `order.paid`) to verify amounts and attribute actual recovered revenue without double-counting.
 
 ---
 
@@ -47,14 +52,17 @@ Policy Engine (Authoritative Decision)
   ↓ (ALLOW)
 Executor (Bounded Financial Execution)
   ↓
-Razorpay Infrastructure (External Payment System)
+Razorpay Infrastructure (External Payment System: Payment Link Generated)
   ↓
-Outcome Reconciliation (Future Milestone)
+Customer Payment Outcome (Razorpay Webhook)
+  ↓
+Outcome Reconciliation (Verified Revenue Attribution & Case Resolution)
 ```
 
 - **AI cannot execute**: The AI layer produces structured proposals only. It has no network client, credentials, or authority to interact with payment gateways.
 - **Policy Engine is authoritative**: No controller or endpoint may invoke the executor without a server-side `ALLOW` decision from `evaluatePolicy()`.
 - **Executor is isolated**: Only `backend/src/actions/paymentLinkExecutor.js` and `backend/src/services/razorpayClient.js` can call the Razorpay API.
+- **Strict Accounting Rule**: Payment Link creation marks `ACTION EXECUTED` (revenue pending). Only a verified outcome webhook marks `OUTCOME_CONFIRMED` and credits `recovered_amount`.
 
 ---
 
@@ -81,18 +89,25 @@ Decision Precedence: `BLOCK` $\succ$ `REVIEW` $\succ$ `ALLOW`.
 
 ---
 
-## Bounded Recovery Executor & Idempotency
+## Outcome Reconciliation Architecture
 
-The executor (`backend/src/actions/paymentLinkExecutor.js`) manages the execution lifecycle:
+The reconciliation service (`backend/src/services/reconciliationService.js`) closes the revenue recovery loop:
 
-- **Action Lifecycle States**: `PENDING` $\rightarrow$ `APPROVED` $\rightarrow$ `EXECUTING` $\rightarrow$ `EXECUTED` / `FAILED` / `BLOCKED` / `REVIEW_REQUIRED`.
-- **Deterministic Idempotency Key**: Generated as `razorpay_case_{caseId}_plink_v{attempt}`. Unique constraint on `recovery_actions.idempotency_key` prevents duplicate link creation at database and application levels.
-- **Payment Link API**: Calls Razorpay's `POST /v1/payment_links` via HTTP Basic Auth (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`).
-- **Persistence**: Persists `provider_action_id` (Payment Link ID) and `payment_link_url` into PostgreSQL table `recovery_actions`.
+1. **Correlation Strategies**:
+   - `providerActionId` match: matches `payload.payment_link.entity.id` against `recovery_actions.provider_action_id`.
+   - `referenceId` match: matches `payload.payment_link.entity.reference_id` against `recovery_actions.idempotency_key`.
+   - `paymentId` / `orderId` match: matches `payload.payment.entity.id` or `order_id` against `recovery_cases.payment_id` / `order_id`.
+2. **Amount and Currency Integrity**:
+   - Compares expected amount from recovery action vs actual provider amount paid.
+   - Compares expected currency vs actual provider currency.
+   - Rejects mismatches (`outcome = 'FAILED_MISMATCH'`, case marked `REVIEW_REQUIRED`, no money credited).
+   - Handles partial payments (`outcome = 'PARTIALLY_PAID'`, case remains open).
+3. **Database Constraints for Zero Double-Counting**:
+   - `CONSTRAINT recovery_outcomes_provider_event_unique UNIQUE (provider, provider_event_id)`
+   - `CREATE UNIQUE INDEX recovery_outcomes_action_verified_idx ON recovery_outcomes (recovery_action_id) WHERE (verified = true)`
 
 ---
 
 ## Stopped & Deferred Layers
 
-- **Payment Link Creation $\neq$ Money Recovered**: Creating a Payment Link transitions action status to `ACTION_EXECUTED`. It does **NOT** count as recovered revenue until a subsequent `payment.captured` or `order.paid` event is received and reconciled.
-- **Deferred Milestones**: Automated retries, customer SMS/email messaging, refunds, discounts, subscriptions, multi-action orchestration, and batch statistical reconciliation are deferred to future milestones.
+- **Deferred Milestones**: Automated retries, customer SMS/email messaging, refunds, discounts, subscriptions, multi-action orchestration, and batch statistical evaluation are deferred to future milestones.

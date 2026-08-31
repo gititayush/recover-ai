@@ -1,10 +1,24 @@
 const { assessRisk } = require('../risk/detector');
+const { reconcileOutcome, isOutcomeEvent } = require('./reconciliationService');
 
 async function processEvent(repository, event) {
   const rawPayload = event.rawPayload || event;
   const { rawPayload: ignoredRawPayload, ...normalizedEvent } = event;
   const storedEvent = await repository.createEvent({ ...normalizedEvent, rawPayload });
   if (!storedEvent) return { duplicate: true };
+
+  // 1. Check if this is a payment outcome event that reconciles an active recovery action
+  if (isOutcomeEvent(event.eventType)) {
+    const reconciliation = await reconcileOutcome(repository, event);
+    if (reconciliation.reconciled || reconciliation.partial || reconciliation.mismatch || reconciliation.alreadyReconciled) {
+      return {
+        duplicate: false,
+        recoveryCase: reconciliation.recoveryCase,
+        reconciliation,
+        suppressed: false
+      };
+    }
+  }
 
   const eventHistory = await repository.getEventsForPayment(event.paymentId);
   const assessment = assessRisk(event, eventHistory);

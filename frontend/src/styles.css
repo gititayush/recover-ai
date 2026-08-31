@@ -17,13 +17,21 @@
 .rules-checklist li.review { border-left: 3px solid #d97706; background: #fffbe6; }
 .rules-checklist code { color: #4338ca; font-weight: 600; }
 .rules-checklist small { color: #64748b; margin-top: 2px; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 28px 0; }
+.metric-recovered strong { color: #15803d; }
+.text-success { color: #15803d; font-size: 1.1rem; }
 .btn-execute { background: #16a34a; color: white; border: 0; border-radius: 8px; padding: 11px 18px; font-weight: 700; width: 100%; margin-top: 8px; transition: background .15s; }
 .btn-execute:hover { background: #15803d; }
 .btn-execute:disabled { opacity: .65; cursor: wait; }
 .action-trigger { margin-top: 14px; }
 .action-result { border-radius: 8px; padding: 14px; margin-top: 14px; font-size: .9rem; }
-.action-result.executed { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.action-result.executed { background: #fffbe6; border: 1px solid #fde68a; }
+.action-result.confirmed { background: #f0fdf4; border: 2px solid #86efac; }
 .action-result.review { background: #fffbe6; border: 1px solid #fde68a; color: #92400e; }
 .action-result.block { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
 .status-executed { background: #16a34a; color: white; padding: 3px 8px; border-radius: 999px; font-size: .75rem; font-weight: 800; }
+.status-confirmed { background: #15803d; color: white; padding: 4px 10px; border-radius: 999px; font-size: .75rem; font-weight: 800; letter-spacing: 0.04em; }
+.status-pending { background: #d97706; color: white; padding: 4px 10px; border-radius: 999px; font-size: .75rem; font-weight: 800; letter-spacing: 0.04em; }
 .notice-disclaimer { margin-top: 12px; background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #0284c7; padding: 10px 12px; font-size: .82rem; color: #0f172a; border-radius: 4px; }
+.notice-verified { margin-top: 14px; background: #ffffff; border: 1px solid #86efac; border-left: 4px solid #16a34a; padding: 10px 14px; font-size: .85rem; color: #14532d; border-radius: 4px; }
+.notice-pending { margin-top: 14px; background: #ffffff; border: 1px solid #fde68a; border-left: 4px solid #d97706; padding: 10px 14px; font-size: .85rem; color: #92400e; border-radius: 4px; }

@@ -19,7 +19,8 @@ function mapCase(row) {
   return {
     id: Number(row.id), paymentId: row.payment_id, orderId: row.order_id, amount: Number(row.amount), currency: row.currency,
     customerReference: row.customer_reference, riskStatus: row.risk_status, riskReason: row.risk_reason, riskLevel: row.risk_level,
-    actionStatus: row.action_status, outcome: row.outcome, firstDetectedAt: row.first_detected_at, lastEventAt: row.last_event_at,
+    actionStatus: row.action_status, outcome: row.outcome, recoveredAmount: Number(row.recovered_amount || 0),
+    firstDetectedAt: row.first_detected_at, lastEventAt: row.last_event_at,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
@@ -42,6 +43,28 @@ function mapAction(row) {
     idempotencyKey: row.idempotency_key, provider: row.provider, providerActionId: row.provider_action_id, paymentLinkUrl: row.payment_link_url,
     amount: Number(row.amount), currency: row.currency, requestMetadata: row.request_metadata, responseMetadata: row.response_metadata,
     failureReason: row.failure_reason, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at
+  };
+}
+
+function mapOutcome(row) {
+  return {
+    id: Number(row.id),
+    recoveryCaseId: Number(row.recovery_case_id),
+    recoveryActionId: row.recovery_action_id ? Number(row.recovery_action_id) : null,
+    provider: row.provider,
+    providerEventId: row.provider_event_id,
+    providerPaymentLinkId: row.provider_payment_link_id,
+    providerPaymentId: row.provider_payment_id,
+    providerOrderId: row.provider_order_id,
+    amountExpected: Number(row.amount_expected),
+    amountPaid: Number(row.amount_paid),
+    currency: row.currency,
+    outcome: row.outcome,
+    verified: Boolean(row.verified),
+    verificationReason: row.verification_reason,
+    providerTimestamp: row.provider_timestamp,
+    receivedAt: row.received_at,
+    createdAt: row.created_at
   };
 }
 
@@ -113,8 +136,26 @@ class PostgresRecoveryRepository {
 
   async updateCase(id, changes) {
     const result = await this.pool.query(
-      `UPDATE recovery_cases SET risk_status=COALESCE($2, risk_status), risk_reason=COALESCE($3, risk_reason), risk_level=COALESCE($4, risk_level), outcome=COALESCE($5, outcome), action_status=COALESCE($6, action_status), last_event_at=COALESCE($7, last_event_at), updated_at=NOW() WHERE id=$1 RETURNING *`,
-      [id, changes.riskStatus || null, changes.riskReason || null, changes.riskLevel || null, changes.outcome || null, changes.actionStatus || null, changes.lastEventAt || null]
+      `UPDATE recovery_cases SET
+        risk_status=COALESCE($2, risk_status),
+        risk_reason=COALESCE($3, risk_reason),
+        risk_level=COALESCE($4, risk_level),
+        outcome=COALESCE($5, outcome),
+        action_status=COALESCE($6, action_status),
+        recovered_amount=COALESCE($7, recovered_amount),
+        last_event_at=COALESCE($8, last_event_at),
+        updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [
+        id,
+        changes.riskStatus || null,
+        changes.riskReason || null,
+        changes.riskLevel || null,
+        changes.outcome || null,
+        changes.actionStatus || null,
+        changes.recoveredAmount !== undefined ? changes.recoveredAmount : null,
+        changes.lastEventAt || null
+      ]
     );
     return mapCase(result.rows[0]);
   }
@@ -167,6 +208,11 @@ class PostgresRecoveryRepository {
     return result.rows[0] ? mapAction(result.rows[0]) : null;
   }
 
+  async findActionByPaymentLinkId(paymentLinkId) {
+    const result = await this.pool.query('SELECT * FROM recovery_actions WHERE provider_action_id = $1 LIMIT 1', [paymentLinkId]);
+    return result.rows[0] ? mapAction(result.rows[0]) : null;
+  }
+
   async findActionsByCaseId(recoveryCaseId) {
     const result = await this.pool.query('SELECT * FROM recovery_actions WHERE recovery_case_id = $1 ORDER BY created_at ASC', [recoveryCaseId]);
     return result.rows.map(mapAction);
@@ -175,6 +221,112 @@ class PostgresRecoveryRepository {
   async getLatestActionForCase(recoveryCaseId) {
     const result = await this.pool.query('SELECT * FROM recovery_actions WHERE recovery_case_id = $1 ORDER BY created_at DESC LIMIT 1', [recoveryCaseId]);
     return result.rows[0] ? mapAction(result.rows[0]) : null;
+  }
+
+  async createOutcome(data) {
+    const result = await this.pool.query(
+      `INSERT INTO recovery_outcomes (
+        recovery_case_id, recovery_action_id, provider, provider_event_id,
+        provider_payment_link_id, provider_payment_id, provider_order_id,
+        amount_expected, amount_paid, currency, outcome, verified,
+        verification_reason, provider_timestamp
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      ON CONFLICT (provider, provider_event_id) DO NOTHING RETURNING *`,
+      [
+        data.recoveryCaseId,
+        data.recoveryActionId || null,
+        data.provider || 'razorpay',
+        data.providerEventId,
+        data.providerPaymentLinkId || null,
+        data.providerPaymentId || null,
+        data.providerOrderId || null,
+        data.amountExpected,
+        data.amountPaid,
+        data.currency,
+        data.outcome,
+        Boolean(data.verified),
+        data.verificationReason,
+        data.providerTimestamp || new Date().toISOString()
+      ]
+    );
+    if (!result.rows[0]) {
+      return this.findOutcomeByEventId(data.provider || 'razorpay', data.providerEventId);
+    }
+    return mapOutcome(result.rows[0]);
+  }
+
+  async findOutcomeByEventId(provider, providerEventId) {
+    const result = await this.pool.query(
+      'SELECT * FROM recovery_outcomes WHERE provider = $1 AND provider_event_id = $2',
+      [provider, providerEventId]
+    );
+    return result.rows[0] ? mapOutcome(result.rows[0]) : null;
+  }
+
+  async findOutcomeByActionId(recoveryActionId) {
+    const result = await this.pool.query(
+      'SELECT * FROM recovery_outcomes WHERE recovery_action_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [recoveryActionId]
+    );
+    return result.rows[0] ? mapOutcome(result.rows[0]) : null;
+  }
+
+  async findOutcomesByCaseId(recoveryCaseId) {
+    const result = await this.pool.query(
+      'SELECT * FROM recovery_outcomes WHERE recovery_case_id = $1 ORDER BY created_at ASC',
+      [recoveryCaseId]
+    );
+    return result.rows.map(mapOutcome);
+  }
+
+  async getRecoveryMetrics() {
+    const [casesRes, outcomesRes, actionsRes] = await Promise.all([
+      this.pool.query(`
+        SELECT
+          COUNT(*) AS total_cases,
+          COUNT(*) FILTER (WHERE risk_status IN ('OPEN', 'RECOVERABLE')) AS open_cases,
+          COUNT(*) FILTER (WHERE risk_status = 'RESOLVED') AS resolved_cases,
+          COALESCE(SUM(amount) FILTER (WHERE risk_status IN ('OPEN', 'RECOVERABLE')), 0) AS revenue_at_risk
+        FROM recovery_cases
+      `),
+      this.pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE verified = true) AS confirmed_recoveries,
+          COALESCE(SUM(amount_paid) FILTER (WHERE verified = true), 0) AS revenue_recovered
+        FROM recovery_outcomes
+      `),
+      this.pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('EXECUTED', 'OUTCOME_CONFIRMED')) AS executed_actions,
+          COUNT(*) FILTER (WHERE status = 'EXECUTED') AS pending_recoveries,
+          COUNT(*) FILTER (WHERE status = 'BLOCKED') AS blocked_cases,
+          COUNT(*) FILTER (WHERE status = 'REVIEW_REQUIRED') AS review_required_cases
+        FROM recovery_actions
+      `)
+    ]);
+
+    const casesRow = casesRes.rows[0];
+    const outcomesRow = outcomesRes.rows[0];
+    const actionsRow = actionsRes.rows[0];
+
+    const revenueAtRisk = Number(casesRow.revenue_at_risk || 0);
+    const revenueRecovered = Number(outcomesRow.revenue_recovered || 0);
+    const totalPotential = revenueAtRisk + revenueRecovered;
+    const recoveryRate = totalPotential > 0 ? Number((revenueRecovered / totalPotential).toFixed(4)) : 0;
+
+    return {
+      revenue_at_risk: revenueAtRisk,
+      revenue_recovered: revenueRecovered,
+      recovery_rate: recoveryRate,
+      total_cases: Number(casesRow.total_cases || 0),
+      open_cases: Number(casesRow.open_cases || 0),
+      resolved_cases: Number(casesRow.resolved_cases || 0),
+      executed_actions: Number(actionsRow.executed_actions || 0),
+      confirmed_recoveries: Number(outcomesRow.confirmed_recoveries || 0),
+      pending_recoveries: Number(actionsRow.pending_recoveries || 0),
+      blocked_cases: Number(actionsRow.blocked_cases || 0),
+      review_required_cases: Number(actionsRow.review_required_cases || 0)
+    };
   }
 
   async listCases() {
@@ -186,16 +338,18 @@ class PostgresRecoveryRepository {
     const result = await this.pool.query('SELECT * FROM recovery_cases WHERE id = $1', [id]);
     if (!result.rows[0]) return null;
     const recoveryCase = mapCase(result.rows[0]);
-    const [events, audits, actions] = await Promise.all([
+    const [events, audits, actions, outcomes] = await Promise.all([
       this.getEventsForPayment(recoveryCase.paymentId),
       this.pool.query('SELECT * FROM audit_events WHERE recovery_case_id = $1 ORDER BY created_at ASC', [id]),
-      this.findActionsByCaseId(recoveryCase.id)
+      this.findActionsByCaseId(recoveryCase.id),
+      this.findOutcomesByCaseId(recoveryCase.id)
     ]);
     return {
       recoveryCase,
       events,
       auditEvents: audits.rows.map((row) => ({ id: Number(row.id), recoveryCaseId: Number(row.recovery_case_id), eventType: row.event_type, message: row.message, metadata: row.metadata, createdAt: row.created_at })),
-      actions
+      actions,
+      outcomes
     };
   }
 }

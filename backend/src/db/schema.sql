@@ -43,11 +43,14 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
   risk_level TEXT NOT NULL CHECK (risk_level IN ('LOW', 'MEDIUM', 'HIGH')),
   action_status TEXT NOT NULL DEFAULT 'NOT_STARTED',
   outcome TEXT,
+  recovered_amount BIGINT NOT NULL DEFAULT 0 CHECK (recovered_amount >= 0),
   first_detected_at TIMESTAMPTZ NOT NULL,
   last_event_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS recovered_amount BIGINT NOT NULL DEFAULT 0 CHECK (recovered_amount >= 0);
 
 CREATE TABLE IF NOT EXISTS ai_diagnoses (
   id BIGSERIAL PRIMARY KEY,
@@ -72,7 +75,7 @@ CREATE TABLE IF NOT EXISTS recovery_actions (
   id BIGSERIAL PRIMARY KEY,
   recovery_case_id BIGINT NOT NULL REFERENCES recovery_cases(id) ON DELETE CASCADE,
   action_type TEXT NOT NULL CHECK (action_type IN ('CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION')),
-  status TEXT NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'EXECUTING', 'EXECUTED', 'FAILED', 'BLOCKED', 'REVIEW_REQUIRED', 'SUPERSEDED')),
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'EXECUTING', 'EXECUTED', 'OUTCOME_CONFIRMED', 'FAILED', 'BLOCKED', 'REVIEW_REQUIRED', 'SUPERSEDED')),
   policy_decision TEXT NOT NULL CHECK (policy_decision IN ('ALLOW', 'REVIEW', 'BLOCK')),
   policy_version TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
@@ -89,13 +92,43 @@ CREATE TABLE IF NOT EXISTS recovery_actions (
   completed_at TIMESTAMPTZ
 );
 
+ALTER TABLE recovery_actions DROP CONSTRAINT IF EXISTS recovery_actions_status_check;
+ALTER TABLE recovery_actions ADD CONSTRAINT recovery_actions_status_check CHECK (
+  status IN ('PENDING', 'APPROVED', 'EXECUTING', 'EXECUTED', 'OUTCOME_CONFIRMED', 'FAILED', 'BLOCKED', 'REVIEW_REQUIRED', 'SUPERSEDED')
+);
+
 CREATE INDEX IF NOT EXISTS recovery_actions_case_id_idx ON recovery_actions (recovery_case_id, created_at);
 CREATE INDEX IF NOT EXISTS recovery_actions_status_idx ON recovery_actions (status);
+
+CREATE TABLE IF NOT EXISTS recovery_outcomes (
+  id BIGSERIAL PRIMARY KEY,
+  recovery_case_id BIGINT NOT NULL REFERENCES recovery_cases(id) ON DELETE CASCADE,
+  recovery_action_id BIGINT REFERENCES recovery_actions(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_event_id TEXT NOT NULL,
+  provider_payment_link_id TEXT,
+  provider_payment_id TEXT,
+  provider_order_id TEXT,
+  amount_expected BIGINT NOT NULL CHECK (amount_expected >= 0),
+  amount_paid BIGINT NOT NULL CHECK (amount_paid >= 0),
+  currency CHAR(3) NOT NULL,
+  outcome TEXT NOT NULL,
+  verified BOOLEAN NOT NULL DEFAULT false,
+  verification_reason TEXT NOT NULL,
+  provider_timestamp TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT recovery_outcomes_provider_event_unique UNIQUE (provider, provider_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS recovery_outcomes_case_id_idx ON recovery_outcomes (recovery_case_id, created_at);
+CREATE INDEX IF NOT EXISTS recovery_outcomes_action_id_idx ON recovery_outcomes (recovery_action_id);
+CREATE UNIQUE INDEX IF NOT EXISTS recovery_outcomes_action_verified_idx ON recovery_outcomes (recovery_action_id) WHERE (verified = true);
 
 CREATE TABLE IF NOT EXISTS audit_events (
   id BIGSERIAL PRIMARY KEY,
   recovery_case_id BIGINT NOT NULL REFERENCES recovery_cases(id) ON DELETE CASCADE,
-  event_type TEXT NOT NULL CHECK (event_type IN ('EVENT_RECEIVED', 'RISK_DETECTED', 'CASE_CREATED', 'CASE_UPDATED')),
+  event_type TEXT NOT NULL,
   message TEXT NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -106,7 +139,9 @@ ALTER TABLE audit_events ADD CONSTRAINT audit_events_event_type_check CHECK (
   event_type IN (
     'EVENT_RECEIVED', 'RISK_DETECTED', 'CASE_CREATED', 'CASE_UPDATED', 'AI_DIAGNOSIS',
     'POLICY_EVALUATED', 'ACTION_APPROVED', 'ACTION_BLOCKED', 'ACTION_REVIEW_REQUIRED',
-    'ACTION_EXECUTION_STARTED', 'ACTION_EXECUTED', 'ACTION_EXECUTION_FAILED'
+    'ACTION_EXECUTION_STARTED', 'ACTION_EXECUTED', 'ACTION_EXECUTION_FAILED',
+    'RECOVERY_OUTCOME_RECEIVED', 'RECOVERY_OUTCOME_VERIFIED', 'RECOVERY_OUTCOME_REJECTED',
+    'REVENUE_RECOVERED'
   )
 );
 

@@ -15,6 +15,9 @@ function createApp(repository, { diagnosisService = createDiagnosisService(), ra
   app.use(express.json({ limit: '100kb' }));
   app.use(morgan('tiny'));
   app.get('/health', (request, response) => response.json({ status: 'ok' }));
+  app.get('/api/recovery/metrics', async (request, response, next) => {
+    try { response.json({ metrics: await repository.getRecoveryMetrics() }); } catch (error) { next(error); }
+  });
   app.use('/api/events', createEventRouter(repository));
   app.use('/api/cases', createCaseRouter(repository, diagnosisService, razorpayClient));
   app.use(notFoundHandler);
