@@ -169,9 +169,9 @@ export default function App() {
             <span className="hero-tag track-tag">Track 03: AI Revenue Recovery</span>
             <span className="hero-tag mode-tag">Razorpay Test Mode Active</span>
           </div>
-          <h1>RecoverAI</h1>
+          <h1>Revflow</h1>
           <p className="hero-subtitle">
-            Autonomous Revenue Recovery Agent & Guardrails Engine
+            AI Revenue Recovery Control Plane
           </p>
           <div className="pipeline-loop">
             <span>Detect</span>
@@ -801,9 +801,9 @@ function BenchmarkView({ evaluation, playbooks }) {
       {/* Benchmark Executive Header */}
       <div className="benchmark-header">
         <div>
-          <h2>RecoverAI Batch Evaluation & Methodology</h2>
+          <h2>Revflow Batch Evaluation & Methodology</h2>
           <p className="muted">
-            Reproducible Stratified Benchmark comparing Rules-Only Baseline against RecoverAI across 7 Track 03 Playbooks.
+            Reproducible Stratified Benchmark comparing Rules-Only Baseline against Revflow across 7 Track 03 Playbooks.
           </p>
         </div>
         <div className="benchmark-meta-pills">
@@ -815,7 +815,7 @@ function BenchmarkView({ evaluation, playbooks }) {
 
       {/* Scope Disclaimer Banner */}
       <div className="scope-disclaimer-banner">
-        <b>Methodology & Scope Notice:</b> The offline benchmark evaluates the RecoverAI decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared customer response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is demonstrated separately in the live operational product.
+        <b>Methodology & Scope Notice:</b> The offline benchmark evaluates the Revflow decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared customer response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is demonstrated separately in the live operational product.
       </div>
 
       {/* Financial Results Grid */}
@@ -833,7 +833,7 @@ function BenchmarkView({ evaluation, playbooks }) {
         </article>
 
         <article className="kpi-card kpi-recovered">
-          <span>RecoverAI Recovered</span>
+          <span>Revflow Recovered</span>
           <strong className="text-success">{formatMoney(fm.recoverai_recovered_revenue)}</strong>
           <small className="muted">Eligible Rate: {((fm.recoverai_eligible_recovery_rate || 0) * 100).toFixed(1)}%</small>
         </article>
@@ -875,7 +875,7 @@ function BenchmarkView({ evaluation, playbooks }) {
       {/* Comparative Performance Table */}
       <div className="comparison-card">
         <div className="comparison-header">
-          <h3>Rules-Only Baseline vs. RecoverAI Engine Performance</h3>
+          <h3>Rules-Only Baseline vs. Revflow Engine Performance</h3>
           <span className="badge-synthetic">Synthetic Benchmark Cohort (N = 560)</span>
         </div>
         <div className="table-responsive">
@@ -884,8 +884,8 @@ function BenchmarkView({ evaluation, playbooks }) {
               <tr>
                 <th>Performance & Safety Dimension</th>
                 <th>Rules-Only Baseline (Naive Dunning)</th>
-                <th>RecoverAI Engine</th>
-                <th>RecoverAI Advantage</th>
+                <th>Revflow Engine</th>
+                <th>Revflow Advantage</th>
               </tr>
             </thead>
             <tbody>
@@ -989,7 +989,7 @@ function BenchmarkView({ evaluation, playbooks }) {
               </div>
               {selectedBreakdown && (
                 <div className="playbook-kpi-pill">
-                  <span>RecoverAI: <b>{((selectedBreakdown.recoverai_eligible_recovery_rate || selectedBreakdown.recoverai_recovery_rate) * 100).toFixed(1)}%</b></span>
+                  <span>Revflow: <b>{((selectedBreakdown.recoverai_eligible_recovery_rate || selectedBreakdown.recoverai_recovery_rate) * 100).toFixed(1)}%</b></span>
                   <span className="muted">Baseline: {((selectedBreakdown.baseline_eligible_recovery_rate || selectedBreakdown.baseline_recovery_rate) * 100).toFixed(1)}%</span>
                   <span className={(selectedBreakdown.incremental_eligible_recovery_rate || selectedBreakdown.incremental_recovery_rate) >= 0 ? 'text-lift' : 'text-danger'}>
                     Δ {((selectedBreakdown.incremental_eligible_recovery_rate || selectedBreakdown.incremental_recovery_rate) * 100) >= 0 ? '+' : ''}

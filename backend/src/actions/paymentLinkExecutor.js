@@ -122,7 +122,7 @@ async function executePaymentLink(repository, {
     const result = await razorpayClient.createPaymentLink({
       amount: recoveryCase.amount,
       currency: recoveryCase.currency,
-      description: `RecoverAI Payment Recovery for Case #${recoveryCase.id} (${recoveryCase.paymentId})`,
+      description: `Revflow Payment Recovery for Case #${recoveryCase.id} (${recoveryCase.paymentId})`,
       referenceId: idempotencyKey
     });
 

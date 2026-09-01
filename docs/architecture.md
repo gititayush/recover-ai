@@ -1,4 +1,4 @@
-# RecoverAI Architecture — Milestones 1 to 5
+# Revflow Architecture — AI Revenue Recovery Control Plane
 
 ```mermaid
 flowchart TD
@@ -30,7 +30,7 @@ flowchart TD
 
 ## System Overview
 
-RecoverAI is structured into strictly separated, bounded layers:
+Revflow is structured into strictly separated, bounded layers:
 
 1. **Event Ingestion & Normalization**: Authenticates signed Razorpay webhooks (HMAC-SHA256), deduplicates provider event IDs, stores raw payloads, and normalizes events into canonical format.
 2. **Risk Detector & Recovery Cases**: Analyzes normalized events, calculates risk levels (`LOW`, `MEDIUM`, `HIGH`), creates or updates `RecoveryCase` records, and maintains an append-only audit log.
@@ -112,7 +112,7 @@ The reconciliation service (`backend/src/services/reconciliationService.js`) clo
 
 ## The Seven Track 03 Recovery Playbooks
 
-RecoverAI organizes all recovery capabilities into seven domain playbooks:
+Revflow organizes all recovery capabilities into seven domain playbooks:
 
 1. **`payment_degradation` (Flagship Real E2E Workflow)**: Detects gateway/acquirer downtime, transient bank outages, and network timeouts. Executes real Razorpay Test Mode Payment Links and reconciles outcomes via webhooks.
 2. **`checkout_drop_off`**: High-intent cart abandonment & auth hesitation recovery with cart-contextual payment links.
@@ -140,7 +140,7 @@ RecoverAI organizes all recovery capabilities into seven domain playbooks:
 │ BATCH EVALUATION LAYER (Python 3.13)                        │
 │ - evaluation/corpus_generator.py (Seed 42, 560 Cases)       │
 │ - evaluation/baseline_evaluator.py (Rules-Only Baseline)    │
-│ - evaluation/recoverai_evaluator.py (RecoverAI Engine)      │
+│ - evaluation/recoverai_evaluator.py (Revflow Engine)        │
 │ - evaluation/metrics_calculator.py (Statistical 95% CI)     │
 │ - evaluation/benchmark_runner.py (CLI: pnpm evaluate)       │
 └─────────────────────────────────────────────────────────────┘
@@ -149,7 +149,7 @@ RecoverAI organizes all recovery capabilities into seven domain playbooks:
 ### Reproducibility Strategy
 - Single CLI command: `pnpm evaluate` (or `python evaluation/benchmark_runner.py --seed 42 --cases-per-playbook 80`).
 - Generates `evaluation/results/evaluation_summary.json`, `evaluation_report.md`, and `recovery_comparison.svg`.
-- Guarantees 0 unsafe financial actions in RecoverAI compared to baseline violations on cancelled/refunded transactions.
+- Guarantees 0 unsafe financial actions in Revflow compared to baseline violations on cancelled/refunded transactions.
 
 ---
 

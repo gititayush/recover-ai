@@ -5,7 +5,7 @@ const { getPool, closePool } = require('./pool');
 async function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   await getPool().query(schema);
-  console.log('RecoverAI database schema is ready.');
+  console.log('Revflow database schema is ready.');
 }
 
 migrate()

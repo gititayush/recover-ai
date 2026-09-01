@@ -1,5 +1,5 @@
 """
-RecoverAI Evaluation — Automated Python Test Suite
+Revflow Evaluation — Automated Python Test Suite
 Tests deterministic hashing, shared response model fairness, Wilson score intervals,
 McNemar paired testing, and end-to-end benchmark reproducibility.
 """

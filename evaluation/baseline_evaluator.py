@@ -1,5 +1,5 @@
 """
-RecoverAI Evaluation — Rules-Only Baseline Evaluator
+Revflow Evaluation — Rules-Only Baseline Evaluator
 Implements the static, uncalibrated rules-only / naive dunning baseline.
 Delegates outcome generation to the shared ground-truth customer response model.
 """

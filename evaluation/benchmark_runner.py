@@ -1,6 +1,6 @@
 """
-RecoverAI Evaluation — Master Benchmark Runner
-Executes the reproducible batch evaluation comparing Rules-Only Baseline vs RecoverAI.
+Revflow Evaluation — Master Benchmark Runner
+Executes the reproducible batch evaluation comparing Rules-Only Baseline vs Revflow.
 Includes SHA-256 integrity verification, authentic Wilson score intervals, McNemar paired testing,
 and explicit Gross vs Eligible recovery rate reporting.
 """
@@ -30,7 +30,7 @@ def compute_sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 def generate_svg_chart(metrics: dict, out_path: Path):
-    """Generates a clean standalone SVG chart comparing Baseline vs RecoverAI."""
+    """Generates a clean standalone SVG chart comparing Baseline vs Revflow."""
     breakdown = metrics["playbook_breakdown"]
     svg_width = 800
     svg_height = 420
@@ -45,13 +45,13 @@ def generate_svg_chart(metrics: dict, out_path: Path):
         '  .legend { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #475569; }',
         '</style>',
         '<rect width="100%" height="100%" fill="#ffffff" rx="8" />',
-        '<text x="24" y="32" class="title">RecoverAI vs. Rules-Only Baseline — Eligible Recovery Rate by Playbook</text>',
+        '<text x="24" y="32" class="title">Revflow vs. Rules-Only Baseline — Eligible Recovery Rate by Playbook</text>',
         f'<text x="24" y="52" class="subtitle">Reproducible Stratified Benchmark (N = {metrics["metadata"]["total_cases"]} cases, Seed = {metrics["metadata"]["seed"]})</text>',
         # Legend
         '<rect x="520" y="24" width="14" height="14" fill="#94a3b8" rx="2" />',
         '<text x="540" y="36" class="legend">Rules-Only Baseline</text>',
         '<rect x="670" y="24" width="14" height="14" fill="#0284c7" rx="2" />',
-        '<text x="690" y="36" class="legend">RecoverAI</text>',
+        '<text x="690" y="36" class="legend">Revflow</text>',
         # Axis lines
         '<line x1="200" y1="70" x2="200" y2="380" stroke="#cbd5e1" stroke-width="1" />',
         '<line x1="200" y1="380" x2="760" y2="380" stroke="#cbd5e1" stroke-width="1" />'
@@ -73,7 +73,7 @@ def generate_svg_chart(metrics: dict, out_path: Path):
         # Baseline bar
         svg.append(f'<rect x="200" y="{y}" width="{base_w}" height="14" fill="#94a3b8" rx="3" opacity="0.85" />')
         svg.append(f'<text x="{200 + base_w + 6}" y="{y + 11}" class="value" fill="#64748b">{base_rate*100:.1f}%</text>')
-        # RecoverAI bar
+        # Revflow bar
         svg.append(f'<rect x="200" y="{y + 18}" width="{rec_w}" height="14" fill="#0284c7" rx="3" />')
         svg.append(f'<text x="{200 + rec_w + 6}" y="{y + 29}" class="value" fill="#0284c7">{rec_rate*100:.1f}% (+{(rec_rate-base_rate)*100:.1f}%)</text>')
 
@@ -96,7 +96,7 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
     ci_rec = ci["recoverai_wilson_score_ci_95"]
     boot_ci = ci["incremental_revenue_bootstrap_ci_95"]["bootstrap_ci_95"]
     md = [
-        "# RecoverAI — Milestone 6 Batch Evaluation & Methodology Report",
+        "# Revflow — Milestone 6 Batch Evaluation & Methodology Report",
         "",
         f"- **Benchmark Scope**: Comparative Evaluation across All 7 Track 03 Recovery Playbooks",
         f"- **Sample Size**: {meta['total_cases']} Stratified Cases ({meta['cases_per_playbook']} per Playbook; {fm['eligible_cases']} Eligible Active Cases)",
@@ -106,13 +106,13 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         f"- **Summary SHA-256**: `{summary_hash}`",
         "",
         "> [!IMPORTANT]",
-        "> **Evaluation Scope Disclaimer**: The offline benchmark evaluates the RecoverAI decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is exercised live in the operational product.",
+        "> **Evaluation Scope Disclaimer**: The offline benchmark evaluates the Revflow decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is demonstrated separately in the live operational product.",
         "",
         "---",
         "",
         "## 1. Executive Summary & Financial Effectiveness",
         "",
-        "| Metric | Rules-Only Baseline | RecoverAI Engine | Incremental Lift (Delta) | Metric Scope |",
+        "| Metric | Rules-Only Baseline | Revflow Engine | Incremental Lift (Delta) | Metric Scope |",
         "|---|---|---|---|---|",
         f"| **Total Revenue at Risk** | INR {fm['total_revenue_at_risk']/100:,.2f} | INR {fm['total_revenue_at_risk']/100:,.2f} | — | All {meta['total_cases']} Cases |",
         f"| **Eligible Recovery Value** | INR {fm['eligible_recovery_value']/100:,.2f} | INR {fm['eligible_recovery_value']/100:,.2f} | — | {fm['eligible_cases']} Active Cases (Excludes cancelled/refunded) |",
@@ -131,11 +131,11 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "",
         "## 2. Safety & Policy Guardrails Audit",
         "",
-        "| Safety Dimension | Rules-Only Baseline | RecoverAI Engine | Policy & Guardrail Meaning |",
+        "| Safety Dimension | Rules-Only Baseline | Revflow Engine | Policy & Guardrail Meaning |",
         "|---|---|---|---|",
-        f"| **Unsafe Financial Actions** | {sm['unsafe_actions_baseline']} violations | **{sm['unsafe_actions_recoverai']} (Zero)** | Executions on cancelled/refunded orders (100% prevented in RecoverAI) |",
+        f"| **Unsafe Financial Actions** | {sm['unsafe_actions_baseline']} violations | **{sm['unsafe_actions_recoverai']} (Zero)** | Executions on cancelled/refunded orders (100% prevented in Revflow) |",
         f"| **Duplicate Attempts in Cooldown** | {sm['baseline_duplicate_attempts']} duplicate links | **{sm['recoverai_duplicate_attempts']} duplicates** | Cooldown violations causing customer annoyance & friction |",
-        f"| **Duplicate Actions Prevented** | 0 | **{sm['duplicate_actions_prevented_by_policy']} actions prevented** | RecoverAI policy enforced 30-min cooldown window |",
+        f"| **Duplicate Actions Prevented** | 0 | **{sm['duplicate_actions_prevented_by_policy']} actions prevented** | Revflow policy enforced 30-min cooldown window |",
         f"| **Terminal / Refund Violations** | {sm['terminal_violations_baseline']} attempts | **{sm['terminal_violations_recoverai']} attempts** | Attempting recovery on cancelled/refunded transactions |",
         f"| **Stopping Rule Activations** | 0 (Ignored) | **{sm['stopping_rule_activations']} cases safely stopped** | Suppressed invalid/terminal recovery |",
         f"| **High-Value Escalations (> INR 25k)** | 0 (Blindly executed) | **{sm['policy_decisions']['review']} cases escalated ({sm['escalation_rate']*100:.1f}%)** | Merchant operations human review |",
@@ -145,7 +145,7 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "",
         "## 3. Seven Playbooks Comparative Breakdown",
         "",
-        "| Playbook | Cases (Eligible) | Revenue at Risk | Eligible Value | Baseline Simulated Recovered | RecoverAI Simulated Recovered | Baseline Elig. Rate | RecoverAI Elig. Rate | Lift (Delta) | Unsafe (Base vs Rec) |",
+        "| Playbook | Cases (Eligible) | Revenue at Risk | Eligible Value | Baseline Simulated Recovered | Revflow Simulated Recovered | Baseline Elig. Rate | Revflow Elig. Rate | Lift (Delta) | Unsafe (Base vs Revflow) |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
 
@@ -160,22 +160,22 @@ def generate_markdown_report(metrics: dict, out_path: Path, corpus_hash: str, su
         "",
         "## 4. Performance Decomposition & Tradeoff Analysis",
         "",
-        "### Where RecoverAI Gains Performance (+INR 2,264,488.00 Simulated Revenue Lift):",
+        "### Where Revflow Gains Performance (+INR 2,264,488.00 Simulated Revenue Lift):",
         "1. **B2B Receivables (+INR 990,000.00, +20.7% Eligible Lift)**: Routing large corporate invoices (> INR 25k) to manual review resolves procurement blockers that unassisted payment links cannot address.",
         "2. **Failed Subscriptions & Mandate Retry (+INR 818,198.00 Combined Lift)**: Sequencing retries to align with customer salary cycles (1st–5th) avoids immediate empty balance declines.",
         "3. **Hinglish Voice Recovery & Promise-to-Pay (+INR 756,081.00 Combined Lift)**: Vernacular assistance helps Tier-2/Tier-3 customers with authentication confusion; promise tracking suppresses premature spam.",
         "",
         "### Why Payment Degradation & Checkout Drop-off Show Apparent Baseline Advantage in Unconstrained Gross Metrics:",
         "1. **Cooldown & Duplicate Attempt Tradeoff**: Baseline ignores the 30-minute cooldown rule and repeatedly fires payment links on cases where a link was recently created. In the simulation, raw spam occasionally converts at the cost of high customer friction (8% penalty) and 44 duplicate violations.",
-        "2. **Terminal State Refusals**: In Checkout Drop-off, 9 cases were cancelled carts. Baseline attempted all 9 (unsafe); RecoverAI stopped all 9 (`NO_ACTION (BLOCK)`).",
-        "3. **High-Value Threshold Escalation**: RecoverAI escalates transactions > INR 25,000 to `REQUEST_MANUAL_REVIEW`, avoiding unmonitored automated execution.",
-        "4. **Simulation Net Economic Truth**: When friction penalties and labor costs are accounted for, RecoverAI delivers **INR 91,425.08** in Simulation Net Economic Value vs **INR 65,797.92** for Baseline with **0 unsafe actions**.",
+        "2. **Terminal State Refusals**: In Checkout Drop-off, 9 cases were cancelled carts. Baseline attempted all 9 (unsafe); Revflow stopped all 9 (`NO_ACTION (BLOCK)`).",
+        "3. **High-Value Threshold Escalation**: Revflow escalates transactions > INR 25,000 to `REQUEST_MANUAL_REVIEW`, avoiding unmonitored automated execution.",
+        "4. **Simulation Net Economic Truth**: When friction penalties and labor costs are accounted for, Revflow delivers **INR 91,425.08** in Simulation Net Economic Value vs **INR 65,797.92** for Baseline with **0 unsafe actions**.",
         "",
         "---",
         "",
-        "## 5. RecoverAI Engine Action Selection Distribution",
+        "## 5. Revflow Engine Action Selection Distribution",
         "",
-        "| Intervention Action | Rules-Only Baseline Count | RecoverAI Engine Count | RecoverAI Share | Role in Engine |",
+        "| Intervention Action | Rules-Only Baseline Count | Revflow Engine Count | Revflow Share | Role in Engine |",
         "|---|---|---|---|---|",
         f"| `CREATE_PAYMENT_LINK` | {meta['total_cases']} (100.0%) | {aim.get('recoverai_action_distribution', {}).get('CREATE_PAYMENT_LINK', 0)} | {aim.get('recoverai_action_distribution', {}).get('CREATE_PAYMENT_LINK', 0)/meta['total_cases']*100:.1f}% | Automated payment link execution |",
         f"| `REQUEST_MANUAL_REVIEW` | 0 (0.0%) | {aim.get('recoverai_action_distribution', {}).get('REQUEST_MANUAL_REVIEW', 0)} | {aim.get('recoverai_action_distribution', {}).get('REQUEST_MANUAL_REVIEW', 0)/meta['total_cases']*100:.1f}% | Escalation for transactions > INR 25k |",
@@ -222,7 +222,7 @@ def run_benchmark(seed: int = 42, cases_per_pb: int = 80, out_dir: str = "evalua
     out_path.mkdir(parents=True, exist_ok=True)
 
     print(f"==================================================")
-    print(f"RecoverAI Rigorous Batch Benchmark Runner")
+    print(f"Revflow Rigorous Batch Benchmark Runner")
     print(f"Seed: {seed} | Cases per Playbook: {cases_per_pb} | Total: {cases_per_pb * 7}")
     print(f"==================================================")
 
@@ -242,10 +242,10 @@ def run_benchmark(seed: int = 42, cases_per_pb: int = 80, out_dir: str = "evalua
     baseline_results = baseline.evaluate_corpus(corpus["cases"])
     print(f"[2/4] Rules-Only Baseline evaluated.")
 
-    # 3. Evaluate RecoverAI
+    # 3. Evaluate Revflow
     recoverai = RecoverAiEvaluator()
     recoverai_results = recoverai.evaluate_corpus(corpus["cases"])
-    print(f"[3/4] RecoverAI Engine evaluated.")
+    print(f"[3/4] Revflow Engine evaluated.")
 
     # 4. Calculate Comparative Metrics
     metrics = calculate_benchmark_metrics(corpus, baseline_results, recoverai_results)
@@ -275,14 +275,14 @@ def run_benchmark(seed: int = 42, cases_per_pb: int = 80, out_dir: str = "evalua
     print(f"Total Revenue at Risk:   INR {fm['total_revenue_at_risk']/100:,.2f} ({fm['total_cases']} cases)")
     print(f"Eligible Recovery Value: INR {fm['eligible_recovery_value']/100:,.2f} ({fm['eligible_cases']} cases)")
     print(f"Baseline Recovered:      INR {fm['baseline_recovered_revenue']/100:,.2f} (Eligible Rate: {fm['baseline_eligible_recovery_rate']*100:.1f}%, Gross: {fm['baseline_gross_recovery_rate']*100:.1f}%)")
-    print(f"RecoverAI Recovered:     INR {fm['recoverai_recovered_revenue']/100:,.2f} (Eligible Rate: {fm['recoverai_eligible_recovery_rate']*100:.1f}%, Gross: {fm['recoverai_gross_recovery_rate']*100:.1f}%)")
+    print(f"Revflow Recovered:       INR {fm['recoverai_recovered_revenue']/100:,.2f} (Eligible Rate: {fm['recoverai_eligible_recovery_rate']*100:.1f}%, Gross: {fm['recoverai_gross_recovery_rate']*100:.1f}%)")
     print(f"Incremental Lift:        +INR {fm['incremental_recovered_revenue']/100:,.2f} (+{fm['incremental_eligible_recovery_rate']*100:.1f}% eligible rate lift)")
     print(f"McNemar Paired Test:     chi2 = {sig['chi2_statistic']}, p = {sig['formatted_p_value']}")
-    print(f"Unsafe Actions:          Baseline: {sm['unsafe_actions_baseline']} | RecoverAI: {sm['unsafe_actions_recoverai']} (Zero)")
+    print(f"Unsafe Actions:          Baseline: {sm['unsafe_actions_baseline']} | Revflow: {sm['unsafe_actions_recoverai']} (Zero)")
     print(f"==================================================\n")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="RecoverAI Batch Evaluation Runner")
+    parser = argparse.ArgumentParser(description="Revflow Batch Evaluation Runner")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--cases-per-playbook", type=int, default=80, help="Cases per playbook family")
     parser.add_argument("--output-dir", type=str, default="evaluation/results", help="Output directory")

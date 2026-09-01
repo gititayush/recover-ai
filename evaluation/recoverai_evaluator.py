@@ -1,5 +1,5 @@
 """
-RecoverAI Evaluation — RecoverAI System Evaluator
+Revflow Evaluation — Revflow System Evaluator
 Simulates AI diagnosis, candidate ranking, 12 authoritative policy rules,
 and delegates outcome generation to the shared ground-truth customer response model.
 """
@@ -9,7 +9,7 @@ from evaluation.response_model import simulate_customer_response
 
 class RecoverAiEvaluator:
     """
-    RecoverAI Multi-Playbook Engine:
+    Revflow Multi-Playbook Engine:
     1. Multi-factor AI diagnosis grounded in structured payment facts.
     2. Expected value ranking across candidate actions.
     3. Authoritative policy guardrails (cooldown, max attempts, high-value review threshold > ₹25,000).

@@ -41,7 +41,7 @@ function createRazorpayClient({
         amount: Math.round(amount),
         currency: currency.toUpperCase(),
         accept_partial: false,
-        description: description || `RecoverAI Payment Recovery (${referenceId})`,
+        description: description || `Revflow Payment Recovery (${referenceId})`,
         reference_id: referenceId,
         ...(expireBy ? { expire_by: expireBy } : {})
       };

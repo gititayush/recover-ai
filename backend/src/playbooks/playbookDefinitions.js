@@ -1,7 +1,7 @@
 /**
- * RecoverAI — The Seven Track 03 Recovery Playbooks
+ * Revflow — The Seven Track 03 Recovery Playbooks
  *
- * All playbooks share the unified RecoverAI engine while encoding
+ * All playbooks share the unified Revflow engine while encoding
  * domain-specific failure patterns, diagnostic indicators, and candidate actions.
  */
 

@@ -1,6 +1,6 @@
-# RecoverAI
+# Revflow — AI Revenue Recovery Control Plane
 
-RecoverAI is an AI-assisted revenue recovery system for the Razorpay Buildathon 2026 (Track 03 — AI Revenue Recovery). It implements reliable event ingestion, deterministic revenue-risk detection, PostgreSQL persistence, recovery cases, audit history, AI diagnosis proposals, a deterministic policy engine, and a bounded recovery executor for Razorpay Standard Payment Links in Test Mode.
+Revflow is an AI-assisted revenue recovery system for the Razorpay Buildathon 2026 (Track 03 — AI Revenue Recovery). It implements reliable event ingestion, deterministic revenue-risk detection, PostgreSQL persistence, recovery cases, audit history, AI diagnosis proposals, a deterministic policy engine, and a bounded recovery executor for Razorpay Standard Payment Links in Test Mode.
 
 ## Current architecture
 
@@ -139,7 +139,7 @@ The outcome reconciliation engine (`backend/src/services/reconciliationService.j
 
 ## The Seven Track 03 Recovery Playbooks
 
-RecoverAI implements the seven Track 03 revenue recovery archetypes in a unified, policy-governed engine:
+Revflow implements the seven Track 03 revenue recovery archetypes in a unified, policy-governed engine:
 
 1. **Payment Degradation & Root Cause Recovery (Flagship Real E2E Workflow)**: Detects gateway/acquirer downtime, transient bank outages, and network timeouts. Executes real Razorpay Test Mode Payment Links and reconciles outcomes via webhooks.
 2. **Checkout Drop-off Recovery**: High-intent cart abandonment & auth hesitation recovery with cart-contextual payment links.
@@ -151,7 +151,7 @@ RecoverAI implements the seven Track 03 revenue recovery archetypes in a unified
 
 ## Reproducible Batch Evaluation (`pnpm evaluate`)
 
-RecoverAI includes a fully reproducible Python simulation and benchmark suite comparing a **Rules-Only Baseline (Naive Dunning)** against **RecoverAI**:
+Revflow includes a fully reproducible Python simulation and benchmark suite comparing a **Rules-Only Baseline (Naive Dunning)** against **Revflow**:
 
 ```sh
 pnpm evaluate
@@ -165,7 +165,7 @@ python evaluation/benchmark_runner.py --seed 42 --cases-per-playbook 80
 
 ### Benchmark Results Summary (N = 560 Stratified Cases, Seed = 42)
 
-| Performance & Safety Dimension | Rules-Only Baseline (Naive Dunning) | RecoverAI Engine | RecoverAI Advantage |
+| Performance & Safety Dimension | Rules-Only Baseline (Naive Dunning) | Revflow Engine | Revflow Advantage |
 |---|---|---|---|
 | **Total Revenue at Risk** | ₹15,548,815.00 | ₹15,548,815.00 | 560 Stratified Cases across 7 Playbooks |
 | **Eligible Recovery Value** | ₹14,167,646.00 | ₹14,167,646.00 | 513 Active Cases (Excludes cancelled/refunded) |

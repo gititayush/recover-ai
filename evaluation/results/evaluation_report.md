@@ -1,4 +1,4 @@
-# RecoverAI — Milestone 6 Batch Evaluation & Methodology Report
+# Revflow — Milestone 6 Batch Evaluation & Methodology Report
 
 - **Benchmark Scope**: Comparative Evaluation across All 7 Track 03 Recovery Playbooks
 - **Sample Size**: 560 Stratified Cases (80 per Playbook; 513 Eligible Active Cases)
@@ -8,13 +8,13 @@
 - **Summary SHA-256**: `7ef7381903131e145c23ebc732d43b3c9af7aa864e51b2d5d32a2da0bd7c7c6d`
 
 > [!IMPORTANT]
-> **Evaluation Scope Disclaimer**: The offline benchmark evaluates the RecoverAI decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is exercised live in the operational product.
+> **Evaluation Scope Disclaimer**: The offline benchmark evaluates the Revflow decision/policy engine against a rules-only baseline using synthetic structured diagnoses and a shared response model. It evaluates policy enforcement, safety constraints, and decision sequencing. It does not measure real-world LLM diagnostic accuracy, which is demonstrated separately in the live operational product.
 
 ---
 
 ## 1. Executive Summary & Financial Effectiveness
 
-| Metric | Rules-Only Baseline | RecoverAI Engine | Incremental Lift (Delta) | Metric Scope |
+| Metric | Rules-Only Baseline | Revflow Engine | Incremental Lift (Delta) | Metric Scope |
 |---|---|---|---|---|
 | **Total Revenue at Risk** | INR 15,548,815.00 | INR 15,548,815.00 | — | All 560 Cases |
 | **Eligible Recovery Value** | INR 14,167,646.00 | INR 14,167,646.00 | — | 513 Active Cases (Excludes cancelled/refunded) |
@@ -33,11 +33,11 @@
 
 ## 2. Safety & Policy Guardrails Audit
 
-| Safety Dimension | Rules-Only Baseline | RecoverAI Engine | Policy & Guardrail Meaning |
+| Safety Dimension | Rules-Only Baseline | Revflow Engine | Policy & Guardrail Meaning |
 |---|---|---|---|
-| **Unsafe Financial Actions** | 47 violations | **0 (Zero)** | Executions on cancelled/refunded orders (100% prevented in RecoverAI) |
+| **Unsafe Financial Actions** | 47 violations | **0 (Zero)** | Executions on cancelled/refunded orders (100% prevented in Revflow) |
 | **Duplicate Attempts in Cooldown** | 44 duplicate links | **0 duplicates** | Cooldown violations causing customer annoyance & friction |
-| **Duplicate Actions Prevented** | 0 | **44 actions prevented** | RecoverAI policy enforced 30-min cooldown window |
+| **Duplicate Actions Prevented** | 0 | **44 actions prevented** | Revflow policy enforced 30-min cooldown window |
 | **Terminal / Refund Violations** | 47 attempts | **0 attempts** | Attempting recovery on cancelled/refunded transactions |
 | **Stopping Rule Activations** | 0 (Ignored) | **103 cases safely stopped** | Suppressed invalid/terminal recovery |
 | **High-Value Escalations (> INR 25k)** | 0 (Blindly executed) | **142 cases escalated (25.4%)** | Merchant operations human review |
@@ -47,7 +47,7 @@
 
 ## 3. Seven Playbooks Comparative Breakdown
 
-| Playbook | Cases (Eligible) | Revenue at Risk | Eligible Value | Baseline Simulated Recovered | RecoverAI Simulated Recovered | Baseline Elig. Rate | RecoverAI Elig. Rate | Lift (Delta) | Unsafe (Base vs Rec) |
+| Playbook | Cases (Eligible) | Revenue at Risk | Eligible Value | Baseline Simulated Recovered | Revflow Simulated Recovered | Baseline Elig. Rate | Revflow Elig. Rate | Lift (Delta) | Unsafe (Base vs Revflow) |
 |---|---|---|---|---|---|---|---|---|---|
 | **Payment Degradation & Root Cause Recovery** | 80 (74) | INR 1,955,539.00 | INR 1,755,043.00 | INR 1,333,260.00 | **INR 1,283,165.00** | 76.0% | **73.1%** | **+-2.9%** | 6 vs **0** |
 | **Checkout Drop-off Recovery** | 80 (71) | INR 1,530,533.00 | INR 1,257,739.00 | INR 816,669.00 | **INR 564,973.00** | 64.9% | **44.9%** | **+-20.0%** | 9 vs **0** |
@@ -61,22 +61,22 @@
 
 ## 4. Performance Decomposition & Tradeoff Analysis
 
-### Where RecoverAI Gains Performance (+INR 2,264,488.00 Simulated Revenue Lift):
+### Where Revflow Gains Performance (+INR 2,264,488.00 Simulated Revenue Lift):
 1. **B2B Receivables (+INR 990,000.00, +20.7% Eligible Lift)**: Routing large corporate invoices (> INR 25k) to manual review resolves procurement blockers that unassisted payment links cannot address.
 2. **Failed Subscriptions & Mandate Retry (+INR 818,198.00 Combined Lift)**: Sequencing retries to align with customer salary cycles (1st–5th) avoids immediate empty balance declines.
 3. **Hinglish Voice Recovery & Promise-to-Pay (+INR 756,081.00 Combined Lift)**: Vernacular assistance helps Tier-2/Tier-3 customers with authentication confusion; promise tracking suppresses premature spam.
 
 ### Why Payment Degradation & Checkout Drop-off Show Apparent Baseline Advantage in Unconstrained Gross Metrics:
 1. **Cooldown & Duplicate Attempt Tradeoff**: Baseline ignores the 30-minute cooldown rule and repeatedly fires payment links on cases where a link was recently created. In the simulation, raw spam occasionally converts at the cost of high customer friction (8% penalty) and 44 duplicate violations.
-2. **Terminal State Refusals**: In Checkout Drop-off, 9 cases were cancelled carts. Baseline attempted all 9 (unsafe); RecoverAI stopped all 9 (`NO_ACTION (BLOCK)`).
-3. **High-Value Threshold Escalation**: RecoverAI escalates transactions > INR 25,000 to `REQUEST_MANUAL_REVIEW`, avoiding unmonitored automated execution.
-4. **Simulation Net Economic Truth**: When friction penalties and labor costs are accounted for, RecoverAI delivers **INR 91,425.08** in Simulation Net Economic Value vs **INR 65,797.92** for Baseline with **0 unsafe actions**.
+2. **Terminal State Refusals**: In Checkout Drop-off, 9 cases were cancelled carts. Baseline attempted all 9 (unsafe); Revflow stopped all 9 (`NO_ACTION (BLOCK)`).
+3. **High-Value Threshold Escalation**: Revflow escalates transactions > INR 25,000 to `REQUEST_MANUAL_REVIEW`, avoiding unmonitored automated execution.
+4. **Simulation Net Economic Truth**: When friction penalties and labor costs are accounted for, Revflow delivers **INR 91,425.08** in Simulation Net Economic Value vs **INR 65,797.92** for Baseline with **0 unsafe actions**.
 
 ---
 
-## 5. RecoverAI Engine Action Selection Distribution
+## 5. Revflow Engine Action Selection Distribution
 
-| Intervention Action | Rules-Only Baseline Count | RecoverAI Engine Count | RecoverAI Share | Role in Engine |
+| Intervention Action | Rules-Only Baseline Count | Revflow Engine Count | Revflow Share | Role in Engine |
 |---|---|---|---|---|
 | `CREATE_PAYMENT_LINK` | 560 (100.0%) | 172 | 30.7% | Automated payment link execution |
 | `REQUEST_MANUAL_REVIEW` | 0 (0.0%) | 142 | 25.4% | Escalation for transactions > INR 25k |
