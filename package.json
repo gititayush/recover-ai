@@ -2,6 +2,9 @@
   "name": "recoverai",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "description": "Revflow — AI Revenue Recovery Control Plane for the Razorpay Buildathon 2026.",
   "scripts": {
     "start": "node backend/src/server.js",

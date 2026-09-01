@@ -387,4 +387,54 @@ describe('AI diagnosis and intervention proposal layer', () => {
       await closePool();
     }
   });
+
+  describe('Production Environment Credential Validation', () => {
+    const { parseEnvironment } = require('../src/config/env');
+
+    it('allows missing credentials in development mode with safe fallbacks', () => {
+      const parsed = parseEnvironment({
+        NODE_ENV: 'development',
+        DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/recoverai'
+      });
+      expect(parsed.NODE_ENV).toBe('development');
+      expect(parsed.RAZORPAY_KEY_ID).toBeUndefined();
+      expect(parsed.AI_API_KEY).toBeUndefined();
+    });
+
+    it('fails startup in production mode when Razorpay or AI credentials are missing', () => {
+      expect(() => parseEnvironment({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/recoverai'
+      })).toThrowError(/RAZORPAY_KEY_ID is required in production mode/);
+    });
+
+    it('identifies all missing production secrets in validation issues without leaking secret values', () => {
+      try {
+        parseEnvironment({
+          NODE_ENV: 'production',
+          DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/recoverai'
+        });
+        expect.unreachable('Should have thrown');
+      } catch (err) {
+        const paths = err.issues.map((i) => i.path[0]);
+        expect(paths).toContain('RAZORPAY_KEY_ID');
+        expect(paths).toContain('RAZORPAY_KEY_SECRET');
+        expect(paths).toContain('RAZORPAY_WEBHOOK_SECRET');
+        expect(paths).toContain('AI_API_KEY');
+      }
+    });
+
+    it('succeeds in production mode when all required credentials are provided', () => {
+      const parsed = parseEnvironment({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/recoverai',
+        RAZORPAY_KEY_ID: 'rzp_test_sample123',
+        RAZORPAY_KEY_SECRET: 'sampleSecretKey123',
+        RAZORPAY_WEBHOOK_SECRET: 'sampleWebhookSecret123',
+        AI_API_KEY: 'sampleAiApiKey123'
+      });
+      expect(parsed.NODE_ENV).toBe('production');
+      expect(parsed.RAZORPAY_KEY_ID).toBe('rzp_test_sample123');
+    });
+  });
 });

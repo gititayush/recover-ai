@@ -7,4 +7,4 @@ const { PostgresRecoveryRepository } = require('./models/postgresRecoveryReposit
 const repository = new PostgresRecoveryRepository(getPool());
 const app = createApp(repository);
 
-app.listen(environment.PORT, () => logger.info('Revflow backend listening', { port: environment.PORT }));
+app.listen(environment.PORT, '0.0.0.0', () => logger.info('Revflow backend listening', { host: '0.0.0.0', port: environment.PORT }));

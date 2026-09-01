@@ -192,6 +192,44 @@ pnpm evaluate
 
 Automated tests (98+ tests) cover webhook verification, normalization, risk detection, AI diagnosis, evidence grounding, policy rules, executor idempotency, outcome reconciliation, correlation strategies, amount/currency integrity checks, double-counting protection, metrics computation, REST endpoints, all 7 playbooks, batch evaluation reproducibility, audit logs, and PostgreSQL persistence.
 
+## Deployment on Render
+
+Revflow is designed to deploy as a unified single service (serving both the Express API and the built React frontend) backed by a managed PostgreSQL database.
+
+### Recommended Configuration
+
+- **Service Type**: Render Web Service (Node)
+- **Database**: Render PostgreSQL
+- **Region**: Singapore (`singapore`) — recommended for lowest latency to Razorpay India infrastructure
+- **Build Command**: `pnpm install && pnpm frontend:build`
+- **Pre-Deploy Command** (or Build suffix): `pnpm db:migrate`
+- **Start Command**: `pnpm start`
+- **Health Check Path**: `/api/health`
+
+### Required Production Environment Variables
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection URI (auto-provided by Render PostgreSQL). |
+| `NODE_ENV` | Set to `production` to activate production configuration and strict credential safety checks. |
+| `RAZORPAY_KEY_ID` | **Test Mode** Key ID (`rzp_test_...`). Real/live keys will be blocked by policy. |
+| `RAZORPAY_KEY_SECRET` | **Test Mode** Key Secret for standard payment link creation. |
+| `RAZORPAY_WEBHOOK_SECRET` | Secret configured in the Razorpay Dashboard for webhook HMAC-SHA256 signature verification. |
+| `AI_API_KEY` | API Key for LLM diagnosis inference (OpenAI or compatible provider). |
+| `AI_MODEL` | *(Optional)* Defaults to `gpt-4.1-mini`. |
+| `AI_BASE_URL` | *(Optional)* Defaults to `https://api.openai.com/v1`. |
+
+### Razorpay Webhook Endpoint Setup
+
+In the Razorpay Merchant Dashboard (**Settings → Webhooks**):
+1. Set the **Webhook URL** to your live HTTPS endpoint: `https://<your-app>.onrender.com/api/webhooks/razorpay`.
+2. Set the **Secret** to match your `RAZORPAY_WEBHOOK_SECRET`.
+3. Subscribe to the following active events:
+   - `payment.failed` (triggers risk detection and AI root-cause diagnosis)
+   - `payment.captured` (terminal payment safety & baseline reconciliation)
+   - `payment_link.paid` (cryptographically reconciles recovered revenue)
+   - `order.paid` (terminal order confirmation)
+
 ## Current limitations
 
 - `CREATE_PAYMENT_LINK` is the only executable financial action against live/test external banking infrastructure.
