@@ -533,7 +533,7 @@ function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency }) 
     return (
       <section className="panel-box diagnosis-box">
         <div className="panel-box-header">
-          <h3>AI Diagnosis & Root Cause Analysis</h3>
+          <h3>AI PROPOSAL · Root Cause Diagnosis</h3>
           <span className="badge-pending">Awaiting Analysis</span>
         </div>
         <p className="empty">No AI diagnosis generated for this case yet.</p>
@@ -548,12 +548,20 @@ function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency }) 
   return (
     <section className="panel-box diagnosis-box">
       <div className="panel-box-header">
-        <h3>AI Diagnosis & Root Cause Analysis</h3>
+        <div>
+          <h3>AI PROPOSAL · Root Cause Diagnosis</h3>
+          <small className="muted">Advisory inference grounded in normalized payment facts (No execution authority)</small>
+        </div>
         <span className="badge-success">Analysis Complete</span>
       </div>
 
       <div className="diagnosis-cause-banner">
-        <span className="cause-label">Identified Root Cause:</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <span className="cause-label">Identified Root Cause:</span>
+          <span className="badge-category" style={{ background: '#dbeafe', color: '#1e40af', fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px' }}>
+            {diagnosis.diagnosis.category || 'TRANSIENT_PAYMENT_FAILURE'}
+          </span>
+        </div>
         <h4>{diagnosis.diagnosis.cause}</h4>
       </div>
 
@@ -563,8 +571,8 @@ function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency }) 
           <dd><b className="text-confidence">{Math.round(diagnosis.diagnosis.confidence * 100)}%</b></dd>
         </div>
         <div>
-          <dt>Recommended Action</dt>
-          <dd><code>{diagnosis.recommendation.action}</code></dd>
+          <dt>Proposed Recovery Action</dt>
+          <dd><code>{diagnosis.proposedAction || diagnosis.recommendation.action}</code></dd>
         </div>
         <div>
           <dt>Inference Source</dt>
@@ -577,7 +585,7 @@ function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency }) 
       </dl>
 
       <div className="evidence-section">
-        <h4>Grounded Evidence Facts (Normalized Webhook Payload)</h4>
+        <h4>Grounded Evidence Facts (Normalized Webhook Telemetry)</h4>
         <ul className="evidence-list">
           {diagnosis.diagnosis.evidence.map((item) => (
             <li key={item.field}>
@@ -608,7 +616,7 @@ function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency }) 
       </div>
 
       <p className="notice-subtle">
-        Proposal Only — Bounded financial actions require deterministic policy guardrails approval before execution.
+        Advisory Proposal Only — All financial interventions require deterministic policy guardrails approval before execution.
       </p>
     </section>
   );
@@ -623,7 +631,10 @@ function PolicyAndActionPanel({ policyData, error, actions, outcomes, onExecute,
   return (
     <section className="panel-box policy-panel-box">
       <div className="panel-box-header">
-        <h3>Deterministic Policy Guardrails & Recovery Execution</h3>
+        <div>
+          <h3>DETERMINISTIC POLICY DECISION · Recovery Governance</h3>
+          <small className="muted">Authoritative 12-rule safety engine with 100% veto authority over AI proposals</small>
+        </div>
         {policyData && (
           <span className={`policy-decision-badge ${policyData.decision.toLowerCase()}`}>
             POLICY {policyData.decision}

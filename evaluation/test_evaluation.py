@@ -112,5 +112,21 @@ class TestEvaluationRigorous(unittest.TestCase):
         m2 = calculate_benchmark_metrics(corpus2, res_b2, res_r2)
         self.assertEqual(json.dumps(m1), json.dumps(m2))
 
+    def test_ai_diagnosis_contract_and_safety_evaluation(self):
+        from evaluation.diagnosis_evaluator import run_contract_evaluation, evaluate_live_model_cohort
+        summary = run_contract_evaluation()
+        self.assertEqual(summary["total_cases"], 24)
+        self.assertEqual(summary["evidence_grounding_rate"], 1.0)
+        self.assertEqual(summary["category_mapping_rate"], 1.0)
+        self.assertEqual(summary["action_validity_rate"], 1.0)
+        self.assertEqual(summary["safe_abstention_rate"], 1.0)
+        self.assertEqual(summary["contract_conformance_rate"], 1.0)
+        self.assertFalse(summary["live_model_evaluated"])
+
+        # Test live model harness explicitly handles missing key without crashing or manufacturing data
+        live_result = evaluate_live_model_cohort(api_key=None)
+        self.assertFalse(live_result["live_model_evaluated"])
+        self.assertEqual(live_result["status"], "NOT_EXECUTED")
+
 if __name__ == "__main__":
     unittest.main()

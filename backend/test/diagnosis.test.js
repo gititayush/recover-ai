@@ -75,6 +75,181 @@ describe('AI diagnosis and intervention proposal layer', () => {
     await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(422);
   });
 
+  it('rejects unsupported domain claims in diagnosis.cause (e.g., hallucinating 3D-Secure when not in context)', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const ungroundedProposal = validProposal({
+      diagnosis: {
+        cause: '3D-Secure authentication failed on customer Visa card with OTP timeout.',
+        confidence: 0.85,
+        evidence: [{ field: 'payment.failureReason', value: 'timeout' }]
+      }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(ungroundedProposal))).post('/api/cases/1/diagnosis').expect(422);
+    expect(response.body).toMatchObject({
+      error: 'AI_DIAGNOSIS_INVALID',
+      message: expect.stringContaining('ungrounded claims')
+    });
+    expect(repository.aiDiagnoses).toHaveLength(0);
+  });
+
+  it('accepts domain-specific claims in diagnosis.cause when supported by context facts', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await processEvent(repository, {
+      eventId: 'evt_hdfc_3ds_001', eventType: 'payment.failed', paymentId: 'pay_hdfc_3ds_001',
+      amount: 499900, currency: 'INR', paymentStatus: 'failed', failureReason: 'Acquiring bank timeout during HDFC 3D-Secure challenge', timestamp: '2026-08-31T10:00:00.000Z'
+    });
+    const groundedProposal = validProposal({
+      diagnosis: {
+        cause: 'HDFC acquiring bank experienced a timeout during the 3D-Secure verification step.',
+        confidence: 0.88,
+        evidence: [{ field: 'payment.failureReason', value: 'Acquiring bank timeout during HDFC 3D-Secure challenge' }]
+      }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(groundedProposal))).post('/api/cases/1/diagnosis').expect(201);
+    expect(response.body.diagnosis.diagnosis.cause).toContain('HDFC');
+  });
+
+  it('rejects diagnosis.cause that contradicts recorded payment status', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const contradictoryProposal = validProposal({
+      diagnosis: {
+        cause: 'The payment was successful and funds transferred successfully.',
+        confidence: 0.90,
+        evidence: [{ field: 'payment.failureReason', value: 'timeout' }]
+      }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(contradictoryProposal))).post('/api/cases/1/diagnosis').expect(422);
+    expect(response.body.error).toBe('AI_DIAGNOSIS_INVALID');
+  });
+
+  it('accepts advisory actions (SCHEDULE_RETRY_WINDOW, DISPATCH_VERNACULAR_ASSIST, RECORD_PROMISE_TO_PAY)', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const advisoryProposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'FAILED_SUBSCRIPTION' },
+      recommendation: { action: 'SCHEDULE_RETRY_WINDOW' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(advisoryProposal))).post('/api/cases/1/diagnosis').expect(201);
+    expect(response.body.diagnosis.proposedAction).toBe('SCHEDULE_RETRY_WINDOW');
+    expect(response.body.diagnosis.recommendation.action).toBe('SCHEDULE_RETRY_WINDOW');
+  });
+
+  it('unlocks SCHEDULE_RETRY_WINDOW candidate for FAILED_SUBSCRIPTION category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'FAILED_SUBSCRIPTION' },
+      recommendation: { action: 'SCHEDULE_RETRY_WINDOW' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    const actions = response.body.diagnosis.candidates.map((c) => c.action);
+    expect(actions).toContain('SCHEDULE_RETRY_WINDOW');
+    expect(actions).not.toContain('CREATE_PAYMENT_LINK');
+  });
+
+  it('unlocks SCHEDULE_RETRY_WINDOW candidate for MANDATE_TIMING category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'MANDATE_TIMING' },
+      recommendation: { action: 'SCHEDULE_RETRY_WINDOW' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    const actions = response.body.diagnosis.candidates.map((c) => c.action);
+    expect(actions).toContain('SCHEDULE_RETRY_WINDOW');
+  });
+
+  it('unlocks DISPATCH_VERNACULAR_ASSIST candidate for LANGUAGE_ASSISTANCE category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'LANGUAGE_ASSISTANCE' },
+      recommendation: { action: 'DISPATCH_VERNACULAR_ASSIST' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    const actions = response.body.diagnosis.candidates.map((c) => c.action);
+    expect(actions).toContain('DISPATCH_VERNACULAR_ASSIST');
+    expect(response.body.diagnosis.recommendation.action).toBe('DISPATCH_VERNACULAR_ASSIST');
+  });
+
+  it('unlocks RECORD_PROMISE_TO_PAY candidate for PROMISE_TO_PAY category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'PROMISE_TO_PAY' },
+      recommendation: { action: 'RECORD_PROMISE_TO_PAY' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    const actions = response.body.diagnosis.candidates.map((c) => c.action);
+    expect(actions).toContain('RECORD_PROMISE_TO_PAY');
+    expect(response.body.diagnosis.recommendation.action).toBe('RECORD_PROMISE_TO_PAY');
+  });
+
+  it('restricts candidates to REQUEST_MANUAL_REVIEW and NO_ACTION for B2B_APPROVAL_DELAY category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'B2B_APPROVAL_DELAY' },
+      recommendation: { action: 'REQUEST_MANUAL_REVIEW' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    const actions = response.body.diagnosis.candidates.map((c) => c.action);
+    expect(actions).toEqual(['REQUEST_MANUAL_REVIEW', 'NO_ACTION']);
+    expect(response.body.diagnosis.recommendation.action).toBe('REQUEST_MANUAL_REVIEW');
+  });
+
+  it('provides CREATE_PAYMENT_LINK candidate for TRANSIENT_PAYMENT_FAILURE category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'TRANSIENT_PAYMENT_FAILURE' },
+      recommendation: { action: 'CREATE_PAYMENT_LINK' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    const actions = response.body.diagnosis.candidates.map((c) => c.action);
+    expect(actions).toContain('CREATE_PAYMENT_LINK');
+    expect(response.body.diagnosis.recommendation.action).toBe('CREATE_PAYMENT_LINK');
+  });
+
+  it('enforces category compatibility when proposal action does not match category', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    // Model infers FAILED_SUBSCRIPTION, but erroneously proposed CREATE_PAYMENT_LINK
+    const mismatchProposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'FAILED_SUBSCRIPTION' },
+      recommendation: { action: 'CREATE_PAYMENT_LINK' }
+    });
+    const response = await request(appWithProvider(repository, mockProvider(mismatchProposal))).post('/api/cases/1/diagnosis').expect(201);
+    expect(response.body.diagnosis.proposedAction).toBe('CREATE_PAYMENT_LINK');
+    // Candidates only contain FAILED_SUBSCRIPTION compatible actions: SCHEDULE_RETRY_WINDOW, REQUEST_MANUAL_REVIEW, NO_ACTION
+    expect(response.body.diagnosis.recommendation.action).toBe('SCHEDULE_RETRY_WINDOW');
+    expect(response.body.diagnosis.candidates.map((c) => c.action)).not.toContain('CREATE_PAYMENT_LINK');
+  });
+
+  it('proves complete causal chain: AI category -> compatible candidates -> ranking -> policy evaluation -> advisory block', async () => {
+    const repository = new InMemoryRecoveryRepository();
+    await seedRecoverableCase(repository);
+    const proposal = validProposal({
+      diagnosis: { ...validProposal().diagnosis, category: 'FAILED_SUBSCRIPTION' },
+      recommendation: { action: 'SCHEDULE_RETRY_WINDOW' }
+    });
+    // 1. Generate diagnosis
+    const diagRes = await request(appWithProvider(repository, mockProvider(proposal))).post('/api/cases/1/diagnosis').expect(201);
+    expect(diagRes.body.diagnosis.diagnosis.category).toBe('FAILED_SUBSCRIPTION');
+    expect(diagRes.body.diagnosis.recommendation.action).toBe('SCHEDULE_RETRY_WINDOW');
+
+    // 2. Evaluate policy: SCHEDULE_RETRY_WINDOW is an advisory action, so Policy Engine BLOCKS automated external execution
+    const app = appWithProvider(repository, mockProvider(proposal));
+    const policyRes = await request(app).post('/api/cases/1/policy').send({ action: 'SCHEDULE_RETRY_WINDOW' }).expect(200);
+    expect(policyRes.body.policy.decision).toBe('BLOCK');
+    expect(policyRes.body.policy.reasons[0]).toContain('not in the authorized action allowlist');
+
+    // 3. Financial action execution attempt is rejected
+    await request(app).post('/api/cases/1/recovery-actions').send({ actionType: 'SCHEDULE_RETRY_WINDOW' }).expect(422);
+  });
+
   it('changes a low-confidence proposal to manual review', async () => {
     const repository = new InMemoryRecoveryRepository();
     await seedRecoverableCase(repository);

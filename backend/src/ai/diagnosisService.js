@@ -29,6 +29,7 @@ function terminalProposal(context) {
   }
   return {
     diagnosis: {
+      category: 'TERMINAL_STATE',
       cause: 'Terminal payment or case state prevents recovery intervention.',
       confidence: 1,
       evidence: [{ field, value }]
@@ -41,9 +42,10 @@ function createDiagnosisService({ provider = createAiProvider({ apiKey: environm
   return {
     async diagnose(detail) {
       const context = buildCaseContext(detail, now ? now() : new Date());
-      const candidates = evaluateCandidates(context);
       const terminal = isTerminal(context);
       const proposal = terminal ? terminalProposal(context) : parseDiagnosisProposal(await provider.diagnose({ context, prompt: { version: PROMPT_VERSION, system: SYSTEM_PROMPT } }), context);
+      const category = proposal.diagnosis?.category || null;
+      const candidates = evaluateCandidates(context, category);
       const recommendation = selectRecommendation(proposal, candidates, context, confidenceThreshold);
       return {
         diagnosis: proposal.diagnosis,

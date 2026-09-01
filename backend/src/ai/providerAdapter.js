@@ -17,7 +17,7 @@ class OpenAiCompatibleProvider {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.model, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: JSON.stringify({ context, schema: 'diagnosis.cause, diagnosis.confidence, diagnosis.evidence[{field,value}], recommendation.action' }) }] })
+      body: JSON.stringify({ model: this.model, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: JSON.stringify({ context, schema: 'diagnosis.category, diagnosis.cause, diagnosis.confidence, diagnosis.evidence[{field,value}], recommendation.action' }) }] })
     });
     if (!response.ok) throw new AiProviderError(`AI provider returned HTTP ${response.status}.`);
     const payload = await response.json();
@@ -39,7 +39,8 @@ class DevelopmentFallbackProvider {
       ? `Deterministic fallback: recorded payment failure reason is ${context.failureReason}.`
       : 'Deterministic fallback: payment failure is recorded without a specific failure reason.';
     const action = context.riskLevel === 'HIGH' || context.paymentAttemptCount > 1 ? 'REQUEST_MANUAL_REVIEW' : 'CREATE_PAYMENT_LINK';
-    return { diagnosis: { cause, confidence: 0.7, evidence: evidence.slice(0, 3) }, recommendation: { action: actions.includes(action) ? action : 'NO_ACTION' } };
+    const category = context.failureReason?.toLowerCase().includes('timeout') ? 'TRANSIENT_PAYMENT_FAILURE' : 'AMBIGUOUS';
+    return { diagnosis: { category, cause, confidence: 0.7, evidence: evidence.slice(0, 3) }, recommendation: { action: actions.includes(action) ? action : 'NO_ACTION' } };
   }
 }
 

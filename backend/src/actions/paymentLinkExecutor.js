@@ -42,7 +42,7 @@ async function executePaymentLink(repository, {
   const policyDecision = evaluatePolicy({
     recoveryCase,
     diagnosis,
-    candidateAction: 'CREATE_PAYMENT_LINK',
+    candidateAction: diagnosis?.recommendation?.action || diagnosis?.proposedAction || 'CREATE_PAYMENT_LINK',
     events,
     existingActions,
     isTestMode,
