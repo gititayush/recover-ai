@@ -97,13 +97,12 @@ async function executePaymentLink(repository, {
   if (typeof razorpayClient.getPaymentLinksByReferenceId === 'function') {
     try {
       const existingLinks = await razorpayClient.getPaymentLinksByReferenceId(stableReferenceId);
-      if (existingLinks && existingLinks.length > 0) {
-        const providerLink = existingLinks[0];
+      const providerLink = existingLinks?.find((link) => link.reference_id === stableReferenceId);
+      if (providerLink) {
         const amountMatches = Number(providerLink.amount) === Number(recoveryCase.amount);
         const currencyMatches = String(providerLink.currency).toUpperCase() === String(recoveryCase.currency).toUpperCase();
-        const referenceMatches = providerLink.reference_id === stableReferenceId;
 
-        if (!amountMatches || !currencyMatches || !referenceMatches) {
+        if (!amountMatches || !currencyMatches) {
           const discrepancyReason = `Provider Payment Link discrepancy (Amount: ${providerLink.amount} vs ${recoveryCase.amount}, Currency: ${providerLink.currency} vs ${recoveryCase.currency})`;
           await repository.addAudit(recoveryCase.id, 'ACTION_REVIEW_REQUIRED', discrepancyReason, {
             providerLinkAmount: providerLink.amount,
@@ -211,13 +210,12 @@ async function executePaymentLink(repository, {
     if (isDuplicateRef && typeof razorpayClient.getPaymentLinksByReferenceId === 'function') {
       try {
         const recoveredLinks = await razorpayClient.getPaymentLinksByReferenceId(stableReferenceId);
-        if (recoveredLinks && recoveredLinks.length > 0) {
-          const providerLink = recoveredLinks[0];
+        const providerLink = recoveredLinks?.find((link) => link.reference_id === stableReferenceId);
+        if (providerLink) {
           const amountMatches = Number(providerLink.amount) === Number(recoveryCase.amount);
           const currencyMatches = String(providerLink.currency).toUpperCase() === String(recoveryCase.currency).toUpperCase();
-          const referenceMatches = providerLink.reference_id === stableReferenceId;
 
-          if (amountMatches && currencyMatches && referenceMatches) {
+          if (amountMatches && currencyMatches) {
             const adoptedAction = await repository.updateAction(actionRecord.id, {
               status: 'EXECUTED',
               providerActionId: providerLink.id,

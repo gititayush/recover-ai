@@ -512,5 +512,62 @@ describe('Milestone 4 — Policy Engine & Bounded Recovery Execution', () => {
       await expect(client.createPaymentLink({ amount: 1000, referenceId: 'ref_1' }))
         .rejects.toThrow('Razorpay key is not a Test Mode key (must start with rzp_test_). Execution blocked.');
     });
+
+    it('31. getPaymentLinksByReferenceId filters out links with different reference_id in memory', async () => {
+      const client = createRazorpayClient({ keyId: 'rzp_test_mock123', keySecret: 'secret_123' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          payment_links: [
+            { id: 'plink_case_1', amount: 10000, currency: 'INR', reference_id: 'razorpay_case_1_plink_v1', short_url: 'https://rzp.io/1' },
+            { id: 'plink_case_2', amount: 50000, currency: 'INR', reference_id: 'razorpay_case_2_plink_v1', short_url: 'https://rzp.io/2' }
+          ]
+        })
+      });
+
+      const matched = await client.getPaymentLinksByReferenceId('razorpay_case_2_plink_v1');
+      expect(matched).toHaveLength(1);
+      expect(matched[0].id).toBe('plink_case_2');
+
+      const unmatched = await client.getPaymentLinksByReferenceId('razorpay_case_3_plink_v1');
+      expect(unmatched).toHaveLength(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('32. executePaymentLink does not mistake an unrelated Payment Link for current case', async () => {
+      const repository = new InMemoryRecoveryRepository();
+      const caseDetail = await seedFailedCase(repository, { amount: 50000 });
+      caseDetail.recoveryCase.id = 2; // Case #2 (50000 paise)
+
+      // Razorpay returns an unrelated link from Case 1 (10000 paise)
+      const razorpayClient = {
+        isConfigured: true,
+        isTestMode: true,
+        keyId: 'rzp_test_mock123',
+        getPaymentLinksByReferenceId: vi.fn().mockResolvedValue([
+          { id: 'plink_unrelated_case_1', amount: 10000, currency: 'INR', reference_id: 'razorpay_case_1_plink_v1', short_url: 'https://rzp.io/1' }
+        ]),
+        createPaymentLink: vi.fn().mockResolvedValue({
+          id: 'plink_new_case_2',
+          amount: 50000,
+          currency: 'INR',
+          reference_id: 'razorpay_case_2_plink_v1',
+          short_url: 'https://rzp.io/case2',
+          status: 'created'
+        })
+      };
+
+      const result = await executePaymentLink(repository, {
+        recoveryCase: caseDetail.recoveryCase,
+        diagnosis: mockProposal(),
+        events: caseDetail.events,
+        razorpayClient
+      });
+
+      expect(result.executed).toBe(true);
+      expect(razorpayClient.createPaymentLink).toHaveBeenCalledTimes(1);
+      expect(result.action.providerActionId).toBe('plink_new_case_2');
+    });
   });
 });

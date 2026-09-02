@@ -110,7 +110,9 @@ function createRazorpayClient({
         }
 
         const items = Array.isArray(responseData?.payment_links) ? responseData.payment_links : [];
-        return items.map((item) => ({
+        return items
+          .filter((item) => !referenceId || item.reference_id === referenceId)
+          .map((item) => ({
           id: item.id,
           short_url: item.short_url,
           status: item.status,
