@@ -19,7 +19,12 @@ class OpenAiCompatibleProvider {
       headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({ model: this.model, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: JSON.stringify({ context, schema: 'diagnosis.category, diagnosis.cause, diagnosis.confidence, diagnosis.evidence[{field,value}], recommendation.action' }) }] })
     });
-    if (!response.ok) throw new AiProviderError(`AI provider returned HTTP ${response.status}.`);
+    if (!response.ok) {
+      const errorBody = typeof response.text === 'function' ? await response.text().catch(() => '') : '';
+      throw new AiProviderError(
+        `AI provider returned HTTP ${response.status}: ${errorBody.slice(0, 300)}`
+      );
+    }
     const payload = await response.json();
     const content = payload.choices?.[0]?.message?.content;
     if (typeof content !== 'string') throw new AiProviderError('AI provider returned no diagnosis content.');
