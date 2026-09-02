@@ -4,7 +4,7 @@ const { InMemoryRecoveryRepository } = require('../src/models/inMemoryRecoveryRe
 const { processEvent } = require('../src/services/eventService');
 const { createDiagnosisService } = require('../src/ai/diagnosisService');
 const { evaluatePolicy } = require('../src/policy/policyEngine');
-const { executePaymentLink, RecoveryExecutorError } = require('../src/actions/paymentLinkExecutor');
+const { executePaymentLink, RecoveryExecutorError, buildStableReferenceId } = require('../src/actions/paymentLinkExecutor');
 
 const fixedNow = () => new Date('2026-08-31T10:30:00.000Z');
 
@@ -568,6 +568,125 @@ describe('Milestone 4 — Policy Engine & Bounded Recovery Execution', () => {
       expect(result.executed).toBe(true);
       expect(razorpayClient.createPaymentLink).toHaveBeenCalledTimes(1);
       expect(result.action.providerActionId).toBe('plink_new_case_2');
+    });
+
+    it('33. two database lifecycles with different payment IDs cannot collide', () => {
+      // Database lifecycle 1: Case 1 for payment pay_lifecycle1_abc
+      const caseLifecycle1 = { id: 1, paymentId: 'pay_lifecycle1_abc' };
+      const ref1 = buildStableReferenceId(caseLifecycle1, 1);
+
+      // Database lifecycle 2 (after reset): Case 1 for payment pay_lifecycle2_xyz
+      const caseLifecycle2 = { id: 1, paymentId: 'pay_lifecycle2_xyz' };
+      const ref2 = buildStableReferenceId(caseLifecycle2, 1);
+
+      expect(ref1).toBe('rc_1_pay_lifecycle1_abc_v1');
+      expect(ref2).toBe('rc_1_pay_lifecycle2_xyz_v1');
+      expect(ref1).not.toBe(ref2);
+    });
+
+    it('34. retries of the same case generate the same deterministic stable reference', () => {
+      const caseA = { id: 2, paymentId: 'pay_TXHXFLRWrIcSRC' };
+      const refAttempt1FirstCall = buildStableReferenceId(caseA, 1);
+      const refAttempt1SecondCall = buildStableReferenceId(caseA, 1);
+
+      expect(refAttempt1FirstCall).toBe('rc_2_pay_TXHXFLRWrIcSRC_v1');
+      expect(refAttempt1SecondCall).toBe(refAttempt1FirstCall);
+      expect(refAttempt1FirstCall.length).toBeLessThanOrEqual(40);
+
+      // Subsequent attempt increments attempt version deterministically
+      const refAttempt2 = buildStableReferenceId(caseA, 2);
+      expect(refAttempt2).toBe('rc_2_pay_TXHXFLRWrIcSRC_v2');
+      expect(refAttempt2).not.toBe(refAttempt1FirstCall);
+    });
+
+    it('35. reconciliation matches payment_link.paid webhook via payment-scoped referenceId', async () => {
+      const { reconcileOutcome } = require('../src/services/reconciliationService');
+      const repository = new InMemoryRecoveryRepository();
+      const caseDetail = await seedFailedCase(repository, { paymentId: 'pay_recon_test_001', amount: 50000 });
+      const expectedRef = buildStableReferenceId(caseDetail.recoveryCase, 1);
+
+      const razorpayClient = {
+        isConfigured: true,
+        isTestMode: true,
+        keyId: 'rzp_test_mock123',
+        getPaymentLinksByReferenceId: vi.fn().mockResolvedValue([]),
+        createPaymentLink: vi.fn().mockImplementation(async (opts) => ({
+          id: 'plink_recon_test',
+          amount: opts.amount,
+          currency: opts.currency,
+          reference_id: opts.referenceId,
+          short_url: 'https://rzp.io/recon',
+          status: 'created'
+        }))
+      };
+
+      const execResult = await executePaymentLink(repository, {
+        recoveryCase: caseDetail.recoveryCase,
+        diagnosis: mockProposal(),
+        events: caseDetail.events,
+        razorpayClient
+      });
+
+      expect(execResult.executed).toBe(true);
+      expect(execResult.action.idempotencyKey).toBe(expectedRef);
+
+      // Webhook arrives with the payment-scoped reference_id
+      const paidWebhookEvent = {
+        eventId: 'evt_recon_paid_123',
+        eventType: 'payment_link.paid',
+        paymentLinkId: 'plink_recon_test',
+        paymentId: 'pay_recon_paid_999',
+        referenceId: expectedRef,
+        amount: 50000,
+        amountPaid: 50000,
+        currency: 'INR',
+        timestamp: new Date().toISOString()
+      };
+
+      const reconResult = await reconcileOutcome(repository, paidWebhookEvent);
+      expect(reconResult.reconciled).toBe(true);
+      expect(reconResult.recoveryCase.riskStatus).toBe('RESOLVED');
+    });
+
+    it('36. an old historical Payment Link with legacy case-based reference cannot block the new case', async () => {
+      const repository = new InMemoryRecoveryRepository();
+      const caseDetail = await seedFailedCase(repository, { paymentId: 'pay_TXHXFLRWrIcSRC', amount: 50000 });
+      caseDetail.recoveryCase.id = 2; // Case #2 (50000 paise)
+
+      // Razorpay account contains the historical link with reference 'razorpay_case_2_plink_v1' and amount 10000
+      const razorpayClient = {
+        isConfigured: true,
+        isTestMode: true,
+        keyId: 'rzp_test_mock123',
+        getPaymentLinksByReferenceId: vi.fn().mockImplementation(async (refId) => {
+          // If queried for old legacy format, it returns the old 10000 link
+          if (refId === 'razorpay_case_2_plink_v1') {
+            return [{ id: 'plink_old_legacy', amount: 10000, currency: 'INR', reference_id: 'razorpay_case_2_plink_v1' }];
+          }
+          // For the new payment-scoped reference, no existing link is found
+          return [];
+        }),
+        createPaymentLink: vi.fn().mockResolvedValue({
+          id: 'plink_new_case_2_live',
+          amount: 50000,
+          currency: 'INR',
+          reference_id: 'rc_2_pay_TXHXFLRWrIcSRC_v1',
+          short_url: 'https://rzp.io/case2_new',
+          status: 'created'
+        })
+      };
+
+      const result = await executePaymentLink(repository, {
+        recoveryCase: caseDetail.recoveryCase,
+        diagnosis: mockProposal(),
+        events: caseDetail.events,
+        razorpayClient
+      });
+
+      expect(result.executed).toBe(true);
+      expect(razorpayClient.createPaymentLink).toHaveBeenCalledTimes(1);
+      expect(result.action.providerActionId).toBe('plink_new_case_2_live');
+      expect(result.action.idempotencyKey).toBe('rc_2_pay_TXHXFLRWrIcSRC_v1');
     });
   });
 });

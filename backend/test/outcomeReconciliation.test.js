@@ -73,6 +73,7 @@ async function setupExecutedRecoveryCase(repository) {
     diagnosis,
     events: detail.events,
     razorpayClient: rzpClient,
+    referenceId: 'razorpay_case_1_plink_v1',
     now: () => new Date('2026-08-31T07:10:00.000Z')
   });
 

@@ -10,6 +10,16 @@ class RecoveryExecutorError extends Error {
   }
 }
 
+function buildStableReferenceId(recoveryCase, attemptNumber = 1) {
+  const rawPaymentId = String(recoveryCase?.paymentId || `case_${recoveryCase?.id || 'unknown'}`);
+  const sanitized = rawPaymentId.replace(/[^a-zA-Z0-9_-]/g, '');
+  const prefix = `rc_${recoveryCase?.id || 0}_`;
+  const suffix = `_v${attemptNumber}`;
+  const maxTokenLen = 40 - prefix.length - suffix.length;
+  const paymentToken = sanitized.length > maxTokenLen ? sanitized.slice(-maxTokenLen) : sanitized;
+  return `${prefix}${paymentToken}${suffix}`;
+}
+
 async function executePaymentLink(repository, {
   recoveryCase,
   diagnosis = null,
@@ -40,7 +50,7 @@ async function executePaymentLink(repository, {
 
   // 2. Compute stable logical execution reference
   const attemptNumber = existingActions.length + 1;
-  const stableReferenceId = referenceId || `razorpay_case_${recoveryCase.id}_plink_v${attemptNumber}`;
+  const stableReferenceId = referenceId || buildStableReferenceId(recoveryCase, attemptNumber);
 
   // 3. Re-evaluate policy server-side to guarantee authority
   const isTestMode = razorpayClient.isTestMode !== undefined ? razorpayClient.isTestMode : false;
@@ -334,4 +344,4 @@ async function executePaymentLink(repository, {
   };
 }
 
-module.exports = { executePaymentLink, RecoveryExecutorError };
+module.exports = { executePaymentLink, RecoveryExecutorError, buildStableReferenceId };
