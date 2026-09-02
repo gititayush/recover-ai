@@ -113,7 +113,17 @@ function parseDiagnosisProposal(rawResult, context) {
   }
   const result = diagnosisProposalSchema.safeParse(parsedResult);
   if (!result.success) {
-    const issues = JSON.stringify(result.error?.issues || []).slice(0, 500);
+    const diagnosticIssues = (result.error?.issues || []).map((issue) => {
+      const rawVal = issue.path.length ? issue.path.reduce((value, key) => (value && typeof value === 'object' ? value[key] : undefined), parsedResult) : undefined;
+      const input = typeof rawVal === 'string' ? rawVal.slice(0, 100) : rawVal !== undefined ? JSON.stringify(rawVal)?.slice(0, 100) : undefined;
+      return {
+        path: issue.path,
+        code: issue.code,
+        message: issue.message,
+        input
+      };
+    });
+    const issues = JSON.stringify(diagnosticIssues).slice(0, 1000);
     throw new AiDiagnosisValidationError(`AI output did not match the required diagnosis schema: ${issues}`);
   }
 
