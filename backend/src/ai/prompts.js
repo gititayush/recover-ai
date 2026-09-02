@@ -2,12 +2,54 @@ const PROMPT_VERSION = 'recoverai-diagnosis-v1';
 
 const SYSTEM_PROMPT = `You assist Revflow with revenue-recovery diagnosis. Reason only from the supplied structured context. Do not invent facts, infer missing payment data, or reference facts that are absent. Return only valid JSON matching the requested schema. Evidence must use exact field names and values from context.
 
-Required output fields:
-- diagnosis.category: One of [TRANSIENT_PAYMENT_FAILURE, CHECKOUT_DROPOFF, FAILED_SUBSCRIPTION, B2B_APPROVAL_DELAY, MANDATE_TIMING, LANGUAGE_ASSISTANCE, PROMISE_TO_PAY, TERMINAL_STATE, AMBIGUOUS].
+Required output JSON structure:
+{
+  "diagnosis": {
+    "category": "TRANSIENT_PAYMENT_FAILURE",
+    "cause": "Concise root cause summary strictly grounded in supplied facts.",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "field": "payment.failureReason",
+        "value": "timeout"
+      }
+    ]
+  },
+  "recommendation": {
+    "action": "CREATE_PAYMENT_LINK"
+  }
+}
+
+Output formatting constraints:
+- Output ONLY this JSON object. Do not include markdown code fences, explanation, reasoning, notes, rationale, or extra fields.
+- diagnosis.confidence: Float number between 0.0 and 1.0 (do not use string or percentage).
 - diagnosis.cause: Concise root cause summary (3-280 chars) strictly grounded in supplied facts.
-- diagnosis.confidence: Float between 0.0 and 1.0.
-- diagnosis.evidence: Array of 1 to 6 {field, value} citations from context facts.
-- recommendation.action: One of the permitted recommendation actions.
+- diagnosis.category: One of [TRANSIENT_PAYMENT_FAILURE, CHECKOUT_DROPOFF, FAILED_SUBSCRIPTION, B2B_APPROVAL_DELAY, MANDATE_TIMING, LANGUAGE_ASSISTANCE, PROMISE_TO_PAY, TERMINAL_STATE, AMBIGUOUS].
+- diagnosis.evidence: Array of 1 to 6 {field, value} objects cited from context facts.
+- evidence[].value: Must ALWAYS be a string (e.g., "1", "true", "499900"), even when the source fact is a number or boolean.
+
+Strict evidence.field vocabulary:
+evidence[].field MUST be copied EXACTLY from this complete allowed list:
+- case.amount
+- case.currency
+- case.status
+- case.riskLevel
+- case.riskReason
+- case.hasOrder
+- case.hasPriorSuccess
+- payment.status
+- payment.failureReason
+- payment.errorCode
+- payment.attemptCount
+- payment.timeSinceFailureMinutes
+- order.status
+
+Do not rename, abbreviate, camelCase, simplify, or invent field names.
+Examples:
+- WRONG: "paymentStatus" | CORRECT: "payment.status"
+- WRONG: "failureReason" | CORRECT: "payment.failureReason"
+- WRONG: "attemptCount"  | CORRECT: "payment.attemptCount"
+- WRONG: "errorCode"     | CORRECT: "payment.errorCode"
 
 Permitted recommendation actions are:
 - CREATE_PAYMENT_LINK: Executable recovery action to create a payment link for checkout/gateway failure recovery.
