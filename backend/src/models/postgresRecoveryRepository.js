@@ -20,6 +20,13 @@ function mapCase(row) {
     id: Number(row.id), paymentId: row.payment_id, orderId: row.order_id, amount: Number(row.amount), currency: row.currency,
     customerReference: row.customer_reference, riskStatus: row.risk_status, riskReason: row.risk_reason, riskLevel: row.risk_level,
     actionStatus: row.action_status, outcome: row.outcome, recoveredAmount: Number(row.recovered_amount || 0),
+    autonomyStatus: row.autonomy_status || 'INACTIVE',
+    autonomyAttempts: Number(row.autonomy_attempts || 0),
+    autonomyLeaseToken: row.autonomy_lease_token || null,
+    lockedUntil: row.locked_until || null,
+    lockedBy: row.locked_by || null,
+    nextRetryAt: row.next_retry_at || null,
+    lastAutonomyError: row.last_autonomy_error || null,
     firstDetectedAt: row.first_detected_at, lastEventAt: row.last_event_at,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
@@ -127,9 +134,9 @@ class PostgresRecoveryRepository {
 
   async createCase(data) {
     const result = await this.pool.query(
-      `INSERT INTO recovery_cases (payment_id, order_id, amount, currency, customer_reference, risk_status, risk_reason, risk_level, first_detected_at, last_event_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [data.paymentId, data.orderId, data.amount, data.currency, data.customerReference, data.riskStatus, data.riskReason, data.riskLevel, data.firstDetectedAt, data.lastEventAt]
+      `INSERT INTO recovery_cases (payment_id, order_id, amount, currency, customer_reference, risk_status, risk_reason, risk_level, autonomy_status, first_detected_at, last_event_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'INACTIVE'),$10,$11) RETURNING *`,
+      [data.paymentId, data.orderId, data.amount, data.currency, data.customerReference, data.riskStatus, data.riskReason, data.riskLevel, data.autonomyStatus || null, data.firstDetectedAt, data.lastEventAt]
     );
     return mapCase(result.rows[0]);
   }
@@ -144,6 +151,13 @@ class PostgresRecoveryRepository {
         action_status=COALESCE($6, action_status),
         recovered_amount=COALESCE($7, recovered_amount),
         last_event_at=COALESCE($8, last_event_at),
+        autonomy_status=COALESCE($9, autonomy_status),
+        autonomy_attempts=COALESCE($10, autonomy_attempts),
+        autonomy_lease_token=COALESCE($11, autonomy_lease_token),
+        locked_until=COALESCE($12, locked_until),
+        locked_by=COALESCE($13, locked_by),
+        next_retry_at=COALESCE($14, next_retry_at),
+        last_autonomy_error=COALESCE($15, last_autonomy_error),
         updated_at=NOW()
        WHERE id=$1 RETURNING *`,
       [
@@ -154,10 +168,96 @@ class PostgresRecoveryRepository {
         changes.outcome || null,
         changes.actionStatus || null,
         changes.recoveredAmount !== undefined ? changes.recoveredAmount : null,
-        changes.lastEventAt || null
+        changes.lastEventAt || null,
+        changes.autonomyStatus || null,
+        changes.autonomyAttempts !== undefined ? changes.autonomyAttempts : null,
+        changes.autonomyLeaseToken !== undefined ? changes.autonomyLeaseToken : null,
+        changes.lockedUntil !== undefined ? changes.lockedUntil : null,
+        changes.lockedBy !== undefined ? changes.lockedBy : null,
+        changes.nextRetryAt !== undefined ? changes.nextRetryAt : null,
+        changes.lastAutonomyError !== undefined ? changes.lastAutonomyError : null
       ]
     );
     return mapCase(result.rows[0]);
+  }
+
+  async claimNextJob({ workerId, leaseDurationSeconds = 60 }) {
+    const crypto = require('crypto');
+    const leaseToken = crypto.randomUUID();
+    const result = await this.pool.query(
+      `WITH candidate AS (
+        SELECT id
+        FROM recovery_cases
+        WHERE (
+          (autonomy_status = 'QUEUED' AND (locked_until IS NULL OR locked_until <= NOW()))
+          OR
+          (autonomy_status = 'RETRY_SCHEDULED' AND next_retry_at <= NOW() AND (locked_until IS NULL OR locked_until <= NOW()))
+          OR
+          (autonomy_status = 'CLAIMED' AND locked_until IS NOT NULL AND locked_until <= NOW())
+        )
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE recovery_cases c
+      SET
+        autonomy_status = 'CLAIMED',
+        autonomy_attempts = c.autonomy_attempts + 1,
+        autonomy_lease_token = $1,
+        locked_until = NOW() + ($2 || ' seconds')::INTERVAL,
+        locked_by = $3,
+        updated_at = NOW()
+      FROM candidate
+      WHERE c.id = candidate.id
+      RETURNING c.*`,
+      [leaseToken, leaseDurationSeconds, workerId]
+    );
+    return result.rows[0] ? mapCase(result.rows[0]) : null;
+  }
+
+  async extendLease(caseId, leaseToken, { leaseDurationSeconds = 60 }) {
+    const result = await this.pool.query(
+      `UPDATE recovery_cases
+       SET locked_until = NOW() + ($2 || ' seconds')::INTERVAL, updated_at = NOW()
+       WHERE id = $1 AND autonomy_lease_token = $3 AND autonomy_status = 'CLAIMED'
+       RETURNING *`,
+      [caseId, leaseDurationSeconds, leaseToken]
+    );
+    return result.rows[0] ? mapCase(result.rows[0]) : null;
+  }
+
+  async releaseJob(caseId, leaseToken, updates = {}) {
+    const result = await this.pool.query(
+      `UPDATE recovery_cases
+       SET
+         autonomy_status = COALESCE($3, autonomy_status),
+         locked_until = NULL,
+         locked_by = NULL,
+         next_retry_at = $4,
+         last_autonomy_error = COALESCE($5, last_autonomy_error),
+         updated_at = NOW()
+       WHERE id = $1 AND autonomy_lease_token = $2
+       RETURNING *`,
+      [caseId, leaseToken, updates.autonomyStatus || null, updates.nextRetryAt || null, updates.lastAutonomyError || null]
+    );
+    return result.rows[0] ? mapCase(result.rows[0]) : null;
+  }
+
+  async scheduleRetry(caseId, leaseToken, { backoffSeconds = 30, error = null }) {
+    const result = await this.pool.query(
+      `UPDATE recovery_cases
+       SET
+         autonomy_status = 'RETRY_SCHEDULED',
+         locked_until = NULL,
+         locked_by = NULL,
+         next_retry_at = NOW() + ($3 || ' seconds')::INTERVAL,
+         last_autonomy_error = $4,
+         updated_at = NOW()
+       WHERE id = $1 AND autonomy_lease_token = $2
+       RETURNING *`,
+      [caseId, leaseToken, backoffSeconds, error]
+    );
+    return result.rows[0] ? mapCase(result.rows[0]) : null;
   }
 
   async addAudit(recoveryCaseId, eventType, message, metadata = {}) {
@@ -184,15 +284,25 @@ class PostgresRecoveryRepository {
   }
 
   async createAction(data) {
-    const result = await this.pool.query(
-      `INSERT INTO recovery_actions (recovery_case_id, action_type, status, policy_decision, policy_version, idempotency_key, provider, provider_action_id, payment_link_url, amount, currency, request_metadata, response_metadata, failure_reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (idempotency_key) DO NOTHING RETURNING *`,
-      [data.recoveryCaseId, data.actionType, data.status, data.policyDecision, data.policyVersion, data.idempotencyKey, data.provider || 'razorpay', data.providerActionId || null, data.paymentLinkUrl || null, data.amount, data.currency, JSON.stringify(data.requestMetadata || {}), JSON.stringify(data.responseMetadata || {}), data.failureReason || null]
-    );
-    if (!result.rows[0]) {
-      return this.findActionByIdempotencyKey(data.idempotencyKey);
+    try {
+      const result = await this.pool.query(
+        `INSERT INTO recovery_actions (recovery_case_id, action_type, status, policy_decision, policy_version, idempotency_key, provider, provider_action_id, payment_link_url, amount, currency, request_metadata, response_metadata, failure_reason)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (idempotency_key) DO NOTHING RETURNING *`,
+        [data.recoveryCaseId, data.actionType, data.status, data.policyDecision, data.policyVersion, data.idempotencyKey, data.provider || 'razorpay', data.providerActionId || null, data.paymentLinkUrl || null, data.amount, data.currency, JSON.stringify(data.requestMetadata || {}), JSON.stringify(data.responseMetadata || {}), data.failureReason || null]
+      );
+      if (!result.rows[0]) {
+        return this.findActionByIdempotencyKey(data.idempotencyKey);
+      }
+      return mapAction(result.rows[0]);
+    } catch (err) {
+      if (err.code === '23505') {
+        const existingByKey = await this.findActionByIdempotencyKey(data.idempotencyKey);
+        if (existingByKey) return existingByKey;
+        const activeAction = await this.getLatestActionForCase(data.recoveryCaseId);
+        if (activeAction) return activeAction;
+      }
+      throw err;
     }
-    return mapAction(result.rows[0]);
   }
 
   async updateAction(id, changes) {

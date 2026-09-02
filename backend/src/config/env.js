@@ -19,7 +19,12 @@ const environmentSchema = z.object({
   AI_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.65),
   RAZORPAY_MAX_AUTOMATED_ATTEMPTS: z.coerce.number().int().positive().default(2),
   RAZORPAY_HIGH_VALUE_THRESHOLD_PAISE: z.coerce.number().int().positive().default(2500000),
-  RAZORPAY_ACTION_COOLDOWN_MINUTES: z.coerce.number().int().nonnegative().default(30)
+  RAZORPAY_ACTION_COOLDOWN_MINUTES: z.coerce.number().int().nonnegative().default(30),
+  AUTONOMOUS_RECOVERY_ENABLED: z.coerce.boolean().default(false),
+  AUTONOMY_WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  AUTONOMY_WORKER_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
+  AUTONOMY_WORKER_MAX_RETRIES: z.coerce.number().int().positive().default(3),
+  AUTONOMY_WORKER_BASE_BACKOFF_SECONDS: z.coerce.number().int().positive().default(30)
 }).superRefine((data, ctx) => {
   if (data.NODE_ENV === 'production') {
     if (!data.RAZORPAY_KEY_ID || data.RAZORPAY_KEY_ID.trim() === '') {
@@ -70,7 +75,12 @@ function parseEnvironment(env = process.env) {
     AI_CONFIDENCE_THRESHOLD: env.AI_CONFIDENCE_THRESHOLD,
     RAZORPAY_MAX_AUTOMATED_ATTEMPTS: env.RAZORPAY_MAX_AUTOMATED_ATTEMPTS,
     RAZORPAY_HIGH_VALUE_THRESHOLD_PAISE: env.RAZORPAY_HIGH_VALUE_THRESHOLD_PAISE,
-    RAZORPAY_ACTION_COOLDOWN_MINUTES: env.RAZORPAY_ACTION_COOLDOWN_MINUTES
+    RAZORPAY_ACTION_COOLDOWN_MINUTES: env.RAZORPAY_ACTION_COOLDOWN_MINUTES,
+    AUTONOMOUS_RECOVERY_ENABLED: env.AUTONOMOUS_RECOVERY_ENABLED,
+    AUTONOMY_WORKER_POLL_INTERVAL_MS: env.AUTONOMY_WORKER_POLL_INTERVAL_MS,
+    AUTONOMY_WORKER_LEASE_SECONDS: env.AUTONOMY_WORKER_LEASE_SECONDS,
+    AUTONOMY_WORKER_MAX_RETRIES: env.AUTONOMY_WORKER_MAX_RETRIES,
+    AUTONOMY_WORKER_BASE_BACKOFF_SECONDS: env.AUTONOMY_WORKER_BASE_BACKOFF_SECONDS
   });
 }
 

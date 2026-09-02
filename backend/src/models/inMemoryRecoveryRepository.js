@@ -53,18 +53,90 @@ class InMemoryRecoveryRepository {
       actionStatus: 'NOT_STARTED',
       outcome: null,
       recoveredAmount: 0,
+      autonomyStatus: data.autonomyStatus || 'INACTIVE',
+      autonomyAttempts: 0,
+      autonomyLeaseToken: null,
+      lockedUntil: null,
+      lockedBy: null,
+      nextRetryAt: null,
+      lastAutonomyError: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...data
     };
     this.cases.push(recoveryCase);
-    return recoveryCase;
+    return { ...recoveryCase };
   }
 
   async updateCase(id, changes) {
-    const recoveryCase = this.cases.find((item) => item.id === id);
+    const recoveryCase = this.cases.find((item) => item.id === Number(id));
+    if (!recoveryCase) return null;
     Object.assign(recoveryCase, changes, { updatedAt: new Date().toISOString() });
-    return recoveryCase;
+    return { ...recoveryCase };
+  }
+
+  async claimNextJob({ workerId, leaseDurationSeconds = 60, now = new Date() }) {
+    const crypto = require('crypto');
+    const currentTime = new Date(now).getTime();
+    const candidate = this.cases
+      .filter((c) => {
+        if (c.autonomyStatus === 'QUEUED') {
+          return !c.lockedUntil || new Date(c.lockedUntil).getTime() <= currentTime;
+        }
+        if (c.autonomyStatus === 'RETRY_SCHEDULED') {
+          return c.nextRetryAt && new Date(c.nextRetryAt).getTime() <= currentTime &&
+            (!c.lockedUntil || new Date(c.lockedUntil).getTime() <= currentTime);
+        }
+        if (c.autonomyStatus === 'CLAIMED') {
+          return c.lockedUntil && new Date(c.lockedUntil).getTime() <= currentTime;
+        }
+        return false;
+      })
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
+
+    if (!candidate) return null;
+
+    candidate.autonomyStatus = 'CLAIMED';
+    candidate.autonomyAttempts = (candidate.autonomyAttempts || 0) + 1;
+    candidate.autonomyLeaseToken = crypto.randomUUID();
+    candidate.lockedUntil = new Date(currentTime + leaseDurationSeconds * 1000).toISOString();
+    candidate.lockedBy = workerId;
+    candidate.updatedAt = new Date().toISOString();
+    return { ...candidate };
+  }
+
+  async extendLease(caseId, leaseToken, { leaseDurationSeconds = 60, now = new Date() }) {
+    const candidate = this.cases.find((c) => c.id === Number(caseId) && c.autonomyLeaseToken === leaseToken && c.autonomyStatus === 'CLAIMED');
+    if (!candidate) return null;
+    const currentTime = new Date(now).getTime();
+    candidate.lockedUntil = new Date(currentTime + leaseDurationSeconds * 1000).toISOString();
+    candidate.updatedAt = new Date().toISOString();
+    return { ...candidate };
+  }
+
+  async releaseJob(caseId, leaseToken, updates = {}) {
+    const candidate = this.cases.find((c) => c.id === Number(caseId) && c.autonomyLeaseToken === leaseToken);
+    if (!candidate) return null;
+    if (updates.autonomyStatus) candidate.autonomyStatus = updates.autonomyStatus;
+    candidate.lockedUntil = null;
+    candidate.lockedBy = null;
+    if (updates.nextRetryAt !== undefined) candidate.nextRetryAt = updates.nextRetryAt;
+    if (updates.lastAutonomyError !== undefined) candidate.lastAutonomyError = updates.lastAutonomyError;
+    candidate.updatedAt = new Date().toISOString();
+    return { ...candidate };
+  }
+
+  async scheduleRetry(caseId, leaseToken, { backoffSeconds = 30, error = null, now = new Date() }) {
+    const candidate = this.cases.find((c) => c.id === Number(caseId) && c.autonomyLeaseToken === leaseToken);
+    if (!candidate) return null;
+    const currentTime = new Date(now).getTime();
+    candidate.autonomyStatus = 'RETRY_SCHEDULED';
+    candidate.lockedUntil = null;
+    candidate.lockedBy = null;
+    candidate.nextRetryAt = new Date(currentTime + backoffSeconds * 1000).toISOString();
+    candidate.lastAutonomyError = error;
+    candidate.updatedAt = new Date().toISOString();
+    return { ...candidate };
   }
 
   async addAudit(recoveryCaseId, eventType, message, metadata = {}) {
@@ -87,6 +159,10 @@ class InMemoryRecoveryRepository {
   async createAction(data) {
     const existing = this.actions.find((a) => a.idempotencyKey === data.idempotencyKey);
     if (existing) return existing;
+    if (data.actionType === 'CREATE_PAYMENT_LINK' && ['EXECUTING', 'EXECUTED', 'OUTCOME_CONFIRMED'].includes(data.status)) {
+      const active = this.actions.find((a) => a.recoveryCaseId === Number(data.recoveryCaseId) && a.actionType === 'CREATE_PAYMENT_LINK' && ['EXECUTING', 'EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status));
+      if (active) return active;
+    }
     const action = {
       id: this.nextActionId++,
       createdAt: new Date().toISOString(),

@@ -15,6 +15,7 @@ async function executePaymentLink(repository, {
   diagnosis = null,
   events = [],
   razorpayClient = createRazorpayClient(),
+  referenceId = null,
   now = () => new Date()
 }) {
   if (!recoveryCase) {
@@ -37,7 +38,11 @@ async function executePaymentLink(repository, {
     };
   }
 
-  // 2. Re-evaluate policy server-side to guarantee authority
+  // 2. Compute stable logical execution reference
+  const attemptNumber = existingActions.length + 1;
+  const stableReferenceId = referenceId || `razorpay_case_${recoveryCase.id}_plink_v${attemptNumber}`;
+
+  // 3. Re-evaluate policy server-side to guarantee authority
   const isTestMode = razorpayClient.isTestMode !== undefined ? razorpayClient.isTestMode : false;
   const policyDecision = evaluatePolicy({
     recoveryCase,
@@ -46,6 +51,7 @@ async function executePaymentLink(repository, {
     events,
     existingActions,
     isTestMode,
+    candidateReference: stableReferenceId,
     now
   });
 
@@ -87,18 +93,89 @@ async function executePaymentLink(repository, {
     });
   }
 
-  // 3. Generate deterministic idempotency key for this attempt
-  const attemptNumber = existingActions.length + 1;
-  const idempotencyKey = `razorpay_case_${recoveryCase.id}_plink_v${attemptNumber}`;
+  // 4. Ambiguous-Success Provider Lookup: Check if link already exists at Razorpay
+  if (typeof razorpayClient.getPaymentLinksByReferenceId === 'function') {
+    try {
+      const existingLinks = await razorpayClient.getPaymentLinksByReferenceId(stableReferenceId);
+      if (existingLinks && existingLinks.length > 0) {
+        const providerLink = existingLinks[0];
+        const amountMatches = Number(providerLink.amount) === Number(recoveryCase.amount);
+        const currencyMatches = String(providerLink.currency).toUpperCase() === String(recoveryCase.currency).toUpperCase();
+        const referenceMatches = providerLink.reference_id === stableReferenceId;
 
-  // 4. Create initial EXECUTING action record
+        if (!amountMatches || !currencyMatches || !referenceMatches) {
+          const discrepancyReason = `Provider Payment Link discrepancy (Amount: ${providerLink.amount} vs ${recoveryCase.amount}, Currency: ${providerLink.currency} vs ${recoveryCase.currency})`;
+          await repository.addAudit(recoveryCase.id, 'ACTION_REVIEW_REQUIRED', discrepancyReason, {
+            providerLinkAmount: providerLink.amount,
+            expectedAmount: recoveryCase.amount,
+            providerLinkCurrency: providerLink.currency,
+            expectedCurrency: recoveryCase.currency
+          });
+          throw new RecoveryExecutorError(discrepancyReason, 422, {
+            policyDecision: { decision: 'REVIEW', reasons: [discrepancyReason] }
+          });
+        }
+
+        let actionRecord = existingActions.find((a) => a.idempotencyKey === stableReferenceId);
+        if (!actionRecord) {
+          actionRecord = await repository.createAction({
+            recoveryCaseId: recoveryCase.id,
+            actionType: 'CREATE_PAYMENT_LINK',
+            status: 'EXECUTED',
+            policyDecision: 'ALLOW',
+            policyVersion: policyDecision.policyVersion,
+            idempotencyKey: stableReferenceId,
+            provider: 'razorpay',
+            providerActionId: providerLink.id,
+            paymentLinkUrl: providerLink.short_url,
+            amount: recoveryCase.amount,
+            currency: recoveryCase.currency,
+            completedAt: new Date().toISOString(),
+            responseMetadata: providerLink.rawResponse || {}
+          });
+        } else {
+          actionRecord = await repository.updateAction(actionRecord.id, {
+            status: 'EXECUTED',
+            providerActionId: providerLink.id,
+            paymentLinkUrl: providerLink.short_url,
+            completedAt: new Date().toISOString()
+          });
+        }
+
+        await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTED', `Adopted existing verified Razorpay Payment Link: ${providerLink.id}`, {
+          actionId: actionRecord.id,
+          providerActionId: providerLink.id,
+          paymentLinkUrl: providerLink.short_url,
+          adoptedFromProvider: true
+        });
+
+        await repository.updateCase(recoveryCase.id, {
+          actionStatus: 'ACTION_EXECUTED',
+          lastEventAt: new Date().toISOString()
+        });
+
+        return {
+          action: actionRecord,
+          duplicate: false,
+          adopted: true,
+          executed: true,
+          message: 'Adopted existing verified Payment Link from provider.'
+        };
+      }
+    } catch (err) {
+      if (err instanceof RecoveryExecutorError) throw err;
+      // Network error during pre-check will proceed or fail in createPaymentLink
+    }
+  }
+
+  // 5. Create initial EXECUTING action record
   const actionRecord = await repository.createAction({
     recoveryCaseId: recoveryCase.id,
     actionType: 'CREATE_PAYMENT_LINK',
     status: 'EXECUTING',
     policyDecision: 'ALLOW',
     policyVersion: policyDecision.policyVersion,
-    idempotencyKey,
+    idempotencyKey: stableReferenceId,
     provider: 'razorpay',
     amount: recoveryCase.amount,
     currency: recoveryCase.currency,
@@ -108,57 +185,73 @@ async function executePaymentLink(repository, {
       paymentId: recoveryCase.paymentId,
       amount: recoveryCase.amount,
       currency: recoveryCase.currency,
-      attemptNumber
+      referenceId: stableReferenceId
     }
   });
 
-  await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTION_STARTED', `Started Payment Link recovery action execution (Attempt #${attemptNumber})`, {
+  await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTION_STARTED', `Started Payment Link recovery action execution (${stableReferenceId})`, {
     actionId: actionRecord.id,
-    idempotencyKey
+    idempotencyKey: stableReferenceId
   });
 
-  // 5. Invoke isolated Razorpay client to create Payment Link
+  // 6. Invoke isolated Razorpay client to create Payment Link
+  let result;
   try {
-    const result = await razorpayClient.createPaymentLink({
+    result = await razorpayClient.createPaymentLink({
       amount: recoveryCase.amount,
       currency: recoveryCase.currency,
       description: `Revflow Payment Recovery for Case #${recoveryCase.id} (${recoveryCase.paymentId})`,
-      referenceId: idempotencyKey
+      referenceId: stableReferenceId
     });
-
-    // 6. Update action record on success
-    const executedAction = await repository.updateAction(actionRecord.id, {
-      status: 'EXECUTED',
-      providerActionId: result.id,
-      paymentLinkUrl: result.short_url,
-      completedAt: new Date().toISOString(),
-      responseMetadata: {
-        id: result.id,
-        short_url: result.short_url,
-        status: result.status,
-        reference_id: result.reference_id
-      }
-    });
-
-    await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTED', `Payment Link recovery action executed successfully: ${result.id}`, {
-      actionId: executedAction.id,
-      providerActionId: result.id,
-      paymentLinkUrl: result.short_url,
-      amount: recoveryCase.amount
-    });
-
-    await repository.updateCase(recoveryCase.id, {
-      actionStatus: 'ACTION_EXECUTED',
-      lastEventAt: new Date().toISOString()
-    });
-
-    return {
-      action: executedAction,
-      duplicate: false,
-      executed: true,
-      message: 'Recovery action executed successfully. Payment link generated.'
-    };
   } catch (error) {
+    // Check for duplicate-reference error (Branch 2: concurrent POST race)
+    const isDuplicateRef = (error.statusCode === 400 || error.statusCode === 422) &&
+      (error.message?.toLowerCase().includes('reference_id already exists') || error.details?.error?.description?.toLowerCase().includes('reference_id already exists'));
+
+    if (isDuplicateRef && typeof razorpayClient.getPaymentLinksByReferenceId === 'function') {
+      try {
+        const recoveredLinks = await razorpayClient.getPaymentLinksByReferenceId(stableReferenceId);
+        if (recoveredLinks && recoveredLinks.length > 0) {
+          const providerLink = recoveredLinks[0];
+          const amountMatches = Number(providerLink.amount) === Number(recoveryCase.amount);
+          const currencyMatches = String(providerLink.currency).toUpperCase() === String(recoveryCase.currency).toUpperCase();
+          const referenceMatches = providerLink.reference_id === stableReferenceId;
+
+          if (amountMatches && currencyMatches && referenceMatches) {
+            const adoptedAction = await repository.updateAction(actionRecord.id, {
+              status: 'EXECUTED',
+              providerActionId: providerLink.id,
+              paymentLinkUrl: providerLink.short_url,
+              completedAt: new Date().toISOString(),
+              responseMetadata: providerLink.rawResponse || {}
+            });
+
+            await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTED', `Adopted existing Razorpay Payment Link after concurrent duplicate response: ${providerLink.id}`, {
+              actionId: adoptedAction.id,
+              providerActionId: providerLink.id,
+              paymentLinkUrl: providerLink.short_url,
+              adoptedFromProvider: true
+            });
+
+            await repository.updateCase(recoveryCase.id, {
+              actionStatus: 'ACTION_EXECUTED',
+              lastEventAt: new Date().toISOString()
+            });
+
+            return {
+              action: adoptedAction,
+              duplicate: false,
+              adopted: true,
+              executed: true,
+              message: 'Adopted existing Payment Link after duplicate reference response.'
+            };
+          }
+        }
+      } catch (recoverErr) {
+        // Fall through to failure handling
+      }
+    }
+
     const failedAction = await repository.updateAction(actionRecord.id, {
       status: 'FAILED',
       failureReason: error.message,
@@ -174,6 +267,73 @@ async function executePaymentLink(repository, {
       action: failedAction
     });
   }
+
+  // 7. TOCTOU Post-Provider State Check
+  const freshDetail = await repository.getCaseDetail(recoveryCase.id);
+  const becameTerminal = ['RESOLVED', 'SUPPRESSED'].includes(freshDetail?.recoveryCase?.riskStatus) ||
+    freshDetail?.events?.some((e) => ['payment.captured', 'order.paid'].includes(e.eventType));
+
+  if (becameTerminal) {
+    const supersededAction = await repository.updateAction(actionRecord.id, {
+      status: 'SUPERSEDED',
+      providerActionId: result.id,
+      paymentLinkUrl: result.short_url,
+      failureReason: 'Terminal payment arrived concurrently during provider execution. Action superseded.',
+      responseMetadata: {
+        id: result.id,
+        short_url: result.short_url,
+        status: result.status,
+        reference_id: result.reference_id
+      }
+    });
+
+    await repository.addAudit(recoveryCase.id, 'ACTION_BLOCKED', 'Terminal payment event arrived concurrently during provider execution. Action superseded.', {
+      actionId: supersededAction.id,
+      providerActionId: result.id,
+      reason: 'SUPERSEDED_BY_CONCURRENT_TERMINAL_PAYMENT'
+    });
+
+    return {
+      action: supersededAction,
+      duplicate: false,
+      executed: false,
+      superseded: true,
+      message: 'Action superseded by concurrent terminal payment event.'
+    };
+  }
+
+  // 8. Normal Success Update
+  const executedAction = await repository.updateAction(actionRecord.id, {
+    status: 'EXECUTED',
+    providerActionId: result.id,
+    paymentLinkUrl: result.short_url,
+    completedAt: new Date().toISOString(),
+    responseMetadata: {
+      id: result.id,
+      short_url: result.short_url,
+      status: result.status,
+      reference_id: result.reference_id
+    }
+  });
+
+  await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTED', `Payment Link recovery action executed successfully: ${result.id}`, {
+    actionId: executedAction.id,
+    providerActionId: result.id,
+    paymentLinkUrl: result.short_url,
+    amount: recoveryCase.amount
+  });
+
+  await repository.updateCase(recoveryCase.id, {
+    actionStatus: 'ACTION_EXECUTED',
+    lastEventAt: new Date().toISOString()
+  });
+
+  return {
+    action: executedAction,
+    duplicate: false,
+    executed: true,
+    message: 'Recovery action executed successfully. Payment link generated.'
+  };
 }
 
 module.exports = { executePaymentLink, RecoveryExecutorError };

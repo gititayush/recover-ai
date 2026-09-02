@@ -13,6 +13,7 @@ function evaluatePolicy({
   maxAutomatedAttempts = environment.RAZORPAY_MAX_AUTOMATED_ATTEMPTS,
   highValueThresholdPaise = environment.RAZORPAY_HIGH_VALUE_THRESHOLD_PAISE,
   cooldownMinutes = environment.RAZORPAY_ACTION_COOLDOWN_MINUTES,
+  candidateReference = null,
   isTestMode = true,
   now = () => new Date()
 } = {}) {
@@ -103,7 +104,12 @@ function evaluatePolicy({
   }
 
   // RULE 5 — MAXIMUM AUTOMATED RECOVERY ATTEMPTS
-  const attemptCount = existingActions.filter((a) => a.status !== 'SUPERSEDED').length;
+  const priorBusinessActions = existingActions.filter((a) => {
+    if (a.status === 'SUPERSEDED') return false;
+    if (candidateReference && a.idempotencyKey === candidateReference) return false;
+    return true;
+  });
+  const attemptCount = new Set(priorBusinessActions.map((a) => a.idempotencyKey || a.id)).size;
   if (attemptCount >= maxAutomatedAttempts) {
     recordRule('max_attempts', 'REVIEW', `Maximum automated recovery attempts (${maxAutomatedAttempts}) reached for this case.`);
   } else {
@@ -131,7 +137,11 @@ function evaluatePolicy({
 
   // RULE 9 — COOLDOWN
   const recentAction = existingActions
-    .filter((a) => a.status !== 'SUPERSEDED')
+    .filter((a) => {
+      if (a.status === 'SUPERSEDED') return false;
+      if (candidateReference && a.idempotencyKey === candidateReference) return false;
+      return true;
+    })
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
 
   if (recentAction && cooldownMinutes > 0) {

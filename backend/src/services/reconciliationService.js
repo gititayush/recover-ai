@@ -105,6 +105,42 @@ async function reconcileOutcome(repository, event) {
     };
   }
 
+  // 3b. TOCTOU Guard: If action is SUPERSEDED or case is already settled as PAID (externally)
+  if (action.status === 'SUPERSEDED' || (recoveryCase.riskStatus === 'RESOLVED' && recoveryCase.outcome === 'PAID')) {
+    const supersededOutcome = await repository.createOutcome({
+      recoveryCaseId: recoveryCase.id,
+      recoveryActionId: action.id,
+      provider: 'razorpay',
+      providerEventId: event.eventId,
+      providerPaymentLinkId: event.paymentLinkId || action.providerActionId || null,
+      providerPaymentId: event.paymentId || null,
+      providerOrderId: event.orderId || null,
+      amountExpected: Number(action.amount),
+      amountPaid: Number(event.amountPaid !== undefined ? event.amountPaid : event.amount),
+      currency: (event.currency || 'INR').toUpperCase(),
+      outcome: 'SUPERSEDED_IGNORED',
+      verified: false,
+      verificationReason: 'SUPERSEDED_ACTION_IGNORED: Case was already resolved by prior payment; no duplicate recovery credit attributed.',
+      providerTimestamp: event.timestamp || new Date().toISOString()
+    });
+
+    await repository.addAudit(recoveryCase.id, 'RECOVERY_OUTCOME_REJECTED', 'Payment received on superseded recovery link. No recovery credit attributed.', {
+      actionId: action.id,
+      outcomeId: supersededOutcome.id,
+      providerPaymentLinkId: event.paymentLinkId || action.providerActionId,
+      reason: 'SUPERSEDED_ACTION_IGNORED'
+    });
+
+    return {
+      isOutcome: true,
+      reconciled: false,
+      superseded: true,
+      outcome: supersededOutcome,
+      recoveryCase,
+      action
+    };
+  }
+
   // 4. Amount and Currency Integrity Checks
   const expectedAmount = Number(action.amount);
   const paidAmount = Number(event.amountPaid !== undefined ? event.amountPaid : event.amount);

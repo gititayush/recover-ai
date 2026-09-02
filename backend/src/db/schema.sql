@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
   action_status TEXT NOT NULL DEFAULT 'NOT_STARTED',
   outcome TEXT,
   recovered_amount BIGINT NOT NULL DEFAULT 0 CHECK (recovered_amount >= 0),
+  autonomy_status TEXT NOT NULL DEFAULT 'INACTIVE' CHECK (autonomy_status IN ('INACTIVE', 'QUEUED', 'CLAIMED', 'COMPLETED', 'REVIEW_REQUIRED', 'BLOCKED', 'RETRY_SCHEDULED', 'FAILED')),
+  autonomy_attempts INTEGER NOT NULL DEFAULT 0 CHECK (autonomy_attempts >= 0),
+  autonomy_lease_token TEXT,
+  locked_until TIMESTAMPTZ,
+  locked_by TEXT,
+  next_retry_at TIMESTAMPTZ,
+  last_autonomy_error TEXT,
   first_detected_at TIMESTAMPTZ NOT NULL,
   last_event_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -51,6 +58,22 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
 );
 
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS recovered_amount BIGINT NOT NULL DEFAULT 0 CHECK (recovered_amount >= 0);
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS autonomy_status TEXT NOT NULL DEFAULT 'INACTIVE';
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS autonomy_attempts INTEGER NOT NULL DEFAULT 0 CHECK (autonomy_attempts >= 0);
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS autonomy_lease_token TEXT;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS locked_by TEXT;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS last_autonomy_error TEXT;
+
+ALTER TABLE recovery_cases DROP CONSTRAINT IF EXISTS recovery_cases_autonomy_status_check;
+ALTER TABLE recovery_cases ADD CONSTRAINT recovery_cases_autonomy_status_check CHECK (
+  autonomy_status IN ('INACTIVE', 'QUEUED', 'CLAIMED', 'COMPLETED', 'REVIEW_REQUIRED', 'BLOCKED', 'RETRY_SCHEDULED', 'FAILED')
+);
+
+CREATE INDEX IF NOT EXISTS recovery_cases_autonomy_queue_idx
+ON recovery_cases (autonomy_status, next_retry_at, locked_until)
+WHERE autonomy_status IN ('QUEUED', 'RETRY_SCHEDULED', 'CLAIMED');
 
 CREATE TABLE IF NOT EXISTS ai_diagnoses (
   id BIGSERIAL PRIMARY KEY,
@@ -99,6 +122,9 @@ ALTER TABLE recovery_actions ADD CONSTRAINT recovery_actions_status_check CHECK 
 
 CREATE INDEX IF NOT EXISTS recovery_actions_case_id_idx ON recovery_actions (recovery_case_id, created_at);
 CREATE INDEX IF NOT EXISTS recovery_actions_status_idx ON recovery_actions (status);
+CREATE UNIQUE INDEX IF NOT EXISTS recovery_actions_case_active_plink_idx
+ON recovery_actions (recovery_case_id)
+WHERE action_type = 'CREATE_PAYMENT_LINK' AND status IN ('EXECUTING', 'EXECUTED', 'OUTCOME_CONFIRMED');
 
 CREATE TABLE IF NOT EXISTS recovery_outcomes (
   id BIGSERIAL PRIMARY KEY,
@@ -141,7 +167,9 @@ ALTER TABLE audit_events ADD CONSTRAINT audit_events_event_type_check CHECK (
     'POLICY_EVALUATED', 'ACTION_APPROVED', 'ACTION_BLOCKED', 'ACTION_REVIEW_REQUIRED',
     'ACTION_EXECUTION_STARTED', 'ACTION_EXECUTED', 'ACTION_EXECUTION_FAILED',
     'RECOVERY_OUTCOME_RECEIVED', 'RECOVERY_OUTCOME_VERIFIED', 'RECOVERY_OUTCOME_REJECTED',
-    'REVENUE_RECOVERED'
+    'REVENUE_RECOVERED',
+    'AUTONOMY_QUEUED', 'AUTONOMY_CLAIMED', 'AUTONOMY_COMPLETED',
+    'AUTONOMY_REVIEW_REQUIRED', 'AUTONOMY_BLOCKED', 'AUTONOMY_RETRY', 'AUTONOMY_FAILED'
   )
 );
 
