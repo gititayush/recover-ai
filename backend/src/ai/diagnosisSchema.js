@@ -112,7 +112,10 @@ function parseDiagnosisProposal(rawResult, context) {
     try { parsedResult = JSON.parse(rawResult); } catch (error) { throw new AiDiagnosisValidationError('AI output was not valid JSON.'); }
   }
   const result = diagnosisProposalSchema.safeParse(parsedResult);
-  if (!result.success) throw new AiDiagnosisValidationError('AI output did not match the required diagnosis schema.');
+  if (!result.success) {
+    const issues = JSON.stringify(result.error?.issues || []).slice(0, 500);
+    throw new AiDiagnosisValidationError(`AI output did not match the required diagnosis schema: ${issues}`);
+  }
 
   const facts = contextFacts(context);
   for (const evidence of result.data.diagnosis.evidence) {
