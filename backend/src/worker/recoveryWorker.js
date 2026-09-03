@@ -193,20 +193,39 @@ function createRecoveryWorker({
       });
 
       if (policyDecision.decision !== 'ALLOW') {
-        const nextStatus = policyDecision.decision === 'REVIEW' ? 'REVIEW_REQUIRED' : 'BLOCKED';
+        const isWait = policyDecision.stopping?.actionDisposition === 'WAIT';
+        const nextStatus = isWait
+          ? 'RETRY_SCHEDULED'
+          : (policyDecision.decision === 'REVIEW' ? 'REVIEW_REQUIRED' : 'BLOCKED');
         const auditEvent = policyDecision.decision === 'REVIEW' ? 'AUTONOMY_REVIEW_REQUIRED' : 'AUTONOMY_BLOCKED';
+        const reasonText = policyDecision.reasons.join('; ');
+        const nextRetryAt = isWait && policyDecision.stopping?.supportingFacts?.cooldownExpiresAt
+          ? policyDecision.stopping.supportingFacts.cooldownExpiresAt
+          : null;
 
         await repository.releaseJob(claimedCase.id, leaseToken, {
           autonomyStatus: nextStatus,
-          lastAutonomyError: policyDecision.reasons.join('; ')
+          nextRetryAt,
+          lastAutonomyError: reasonText
         });
 
-        await repository.addAudit(claimedCase.id, auditEvent, `Policy decision: ${policyDecision.decision}. ${policyDecision.reasons.join('; ')}`, {
-          decision: policyDecision.decision,
-          reasons: policyDecision.reasons
-        });
+        // Deduplicate audit: avoid recording identical error if case was already stopped with the same reason
+        const isDuplicateAudit = claimedCase.lastAutonomyError === reasonText;
 
-        return { processed: true, status: nextStatus, reasons: policyDecision.reasons };
+        if (!isDuplicateAudit) {
+          await repository.addAudit(claimedCase.id, auditEvent, `Policy decision: ${policyDecision.decision}. ${reasonText}`, {
+            decision: policyDecision.decision,
+            reasons: policyDecision.reasons,
+            stopping: policyDecision.stopping || null
+          });
+        }
+
+        return {
+          processed: true,
+          status: nextStatus,
+          reasons: policyDecision.reasons,
+          stopping: policyDecision.stopping || null
+        };
       }
 
       // 5. Bounded Execution via Payment Link Executor (with ambiguous-success & TOCTOU protection)

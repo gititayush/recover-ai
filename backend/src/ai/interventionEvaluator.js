@@ -1,4 +1,5 @@
-const HEURISTIC_VERSION = 'recovery-heuristic-v1';
+const { getStrategy, EXECUTION_MODES } = require('../strategies/strategyRegistry');
+const { calculateERV, HEURISTIC_VERSION } = require('../strategies/expectedRecoveryValue');
 
 const CATEGORY_ALLOWED_ACTIONS = {
   TRANSIENT_PAYMENT_FAILURE: ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
@@ -21,10 +22,18 @@ function baseProbability(context) {
 }
 
 function getActionDefinition(action, context, baseProb) {
+  const strategy = getStrategy(action);
+  const executionMode = strategy?.executionMode || (action === 'CREATE_PAYMENT_LINK' ? EXECUTION_MODES.LIVE_PROVIDER : (['REQUEST_MANUAL_REVIEW', 'NO_ACTION'].includes(action) ? EXECUTION_MODES.CONTROL : EXECUTION_MODES.SIMULATED));
+  const isLiveExecutable = strategy ? strategy.isLiveExecutable : (action === 'CREATE_PAYMENT_LINK');
+  const strategyDescription = strategy?.description || null;
+
   switch (action) {
     case 'CREATE_PAYMENT_LINK':
       return {
         action: 'CREATE_PAYMENT_LINK',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
         estimatedProbability: baseProb,
         interventionCost: 0,
         estimatedFriction: Math.round(context.amount * 0.05)
@@ -32,6 +41,9 @@ function getActionDefinition(action, context, baseProb) {
     case 'SCHEDULE_RETRY_WINDOW':
       return {
         action: 'SCHEDULE_RETRY_WINDOW',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
         estimatedProbability: Math.min(0.65, baseProb + 0.05),
         interventionCost: 500,
         estimatedFriction: Math.round(context.amount * 0.02)
@@ -39,6 +51,9 @@ function getActionDefinition(action, context, baseProb) {
     case 'DISPATCH_VERNACULAR_ASSIST':
       return {
         action: 'DISPATCH_VERNACULAR_ASSIST',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
         estimatedProbability: Math.min(0.68, baseProb + 0.08),
         interventionCost: 1000,
         estimatedFriction: Math.round(context.amount * 0.03)
@@ -46,6 +61,9 @@ function getActionDefinition(action, context, baseProb) {
     case 'RECORD_PROMISE_TO_PAY':
       return {
         action: 'RECORD_PROMISE_TO_PAY',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
         estimatedProbability: Math.min(0.70, baseProb + 0.10),
         interventionCost: 0,
         estimatedFriction: 0
@@ -53,6 +71,9 @@ function getActionDefinition(action, context, baseProb) {
     case 'REQUEST_MANUAL_REVIEW':
       return {
         action: 'REQUEST_MANUAL_REVIEW',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
         estimatedProbability: Math.max(0, baseProb - 0.1),
         interventionCost: 2500,
         estimatedFriction: Math.round(context.amount * 0.1)
@@ -61,6 +82,9 @@ function getActionDefinition(action, context, baseProb) {
     default:
       return {
         action: 'NO_ACTION',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
         estimatedProbability: 0,
         interventionCost: 0,
         estimatedFriction: 0
@@ -91,8 +115,17 @@ function evaluateCandidates(context, category = null) {
   return definitions.map((candidate) => ({
     ...candidate,
     recoverableAmount: context.amount,
-    estimatedRecoveryValue: Math.round((candidate.estimatedProbability * context.amount) - candidate.interventionCost - candidate.estimatedFriction),
-    assumptions: { heuristicVersion: HEURISTIC_VERSION, note: 'Heuristic estimate only; not a learned or measured recovery probability.' }
+    estimatedRecoveryValue: calculateERV({
+      amount: context.amount,
+      probability: candidate.estimatedProbability,
+      interventionCost: candidate.interventionCost,
+      frictionCost: candidate.estimatedFriction
+    }),
+    assumptions: {
+      heuristicVersion: HEURISTIC_VERSION,
+      isLearnedModel: false,
+      note: 'Heuristic estimate only; not a learned or measured recovery probability.'
+    }
   }));
 }
 
@@ -101,3 +134,4 @@ function rankCandidates(candidates) {
 }
 
 module.exports = { HEURISTIC_VERSION, CATEGORY_ALLOWED_ACTIONS, evaluateCandidates, rankCandidates };
+

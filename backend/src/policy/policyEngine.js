@@ -1,4 +1,9 @@
 const { environment } = require('../config/env');
+const {
+  evaluateStoppingCriteria,
+  STOP_REASON_CODES,
+  ACTION_DISPOSITIONS
+} = require('./stoppingEngine');
 
 const POLICY_VERSION = 'recoverai-policy-v1';
 const ALLOWED_ACTIONS = ['CREATE_PAYMENT_LINK'];
@@ -157,6 +162,34 @@ function evaluatePolicy({
     recordRule('cooldown_period', 'PASS');
   }
 
+  // EVALUATE EXPLICIT STOPPING CRITERIA
+  const stopping = evaluateStoppingCriteria({
+    recoveryCase,
+    diagnosis,
+    candidateAction: targetAction,
+    events,
+    existingActions,
+    confidenceThreshold,
+    maxAutomatedAttempts,
+    highValueThresholdPaise,
+    cooldownMinutes,
+    candidateReference,
+    now
+  });
+
+  // If stopping engine flagged a block or review condition not already captured by basic rules
+  if (stopping.stopped) {
+    if (stopping.actionDisposition === ACTION_DISPOSITIONS.HARD_STOP) {
+      if (blockReasons.length === 0) {
+        blockReasons.push(stopping.humanReadableReason);
+      }
+    } else if (stopping.actionDisposition === ACTION_DISPOSITIONS.WAIT || stopping.actionDisposition === ACTION_DISPOSITIONS.ESCALATE) {
+      if (reviewReasons.length === 0 && blockReasons.length === 0) {
+        reviewReasons.push(stopping.humanReadableReason);
+      }
+    }
+  }
+
   let decision = 'ALLOW';
   const reasons = [];
 
@@ -173,8 +206,15 @@ function evaluatePolicy({
     action: targetAction,
     reasons,
     rulesEvaluated,
-    policyVersion: POLICY_VERSION
+    policyVersion: POLICY_VERSION,
+    stopping
   };
 }
 
-module.exports = { POLICY_VERSION, ALLOWED_ACTIONS, evaluatePolicy };
+module.exports = {
+  POLICY_VERSION,
+  ALLOWED_ACTIONS,
+  STOP_REASON_CODES,
+  ACTION_DISPOSITIONS,
+  evaluatePolicy
+};
