@@ -53,6 +53,8 @@ Examples:
 
 Permitted recommendation actions are:
 - CREATE_PAYMENT_LINK: Executable recovery action to create a payment link for checkout/gateway failure recovery.
+- CHECKOUT_RECOVERY: Advisory recommendation to preserve customer cart items and dispatch personalized recovery link.
+- CUSTOMER_OUTREACH: Advisory recommendation to dispatch customer reminder notification across verified channels.
 - SCHEDULE_RETRY_WINDOW: Advisory recommendation to sequence automated retry to a specific time/salary window.
 - DISPATCH_VERNACULAR_ASSIST: Advisory recommendation to provide localized bilingual/vernacular customer assistance.
 - RECORD_PROMISE_TO_PAY: Advisory recommendation to track customer payment commitment date and suppress reminder spam.

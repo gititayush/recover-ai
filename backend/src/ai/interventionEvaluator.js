@@ -3,7 +3,7 @@ const { calculateERV, HEURISTIC_VERSION } = require('../strategies/expectedRecov
 
 const CATEGORY_ALLOWED_ACTIONS = {
   TRANSIENT_PAYMENT_FAILURE: ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
-  CHECKOUT_DROPOFF: ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
+  CHECKOUT_DROPOFF: ['CREATE_PAYMENT_LINK', 'CHECKOUT_RECOVERY', 'CUSTOMER_OUTREACH', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
   FAILED_SUBSCRIPTION: ['SCHEDULE_RETRY_WINDOW', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
   B2B_APPROVAL_DELAY: ['REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
   MANDATE_TIMING: ['SCHEDULE_RETRY_WINDOW', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'],
@@ -46,6 +46,26 @@ function getActionDefinition(action, context, baseProb) {
         strategyDescription,
         estimatedProbability: Math.min(0.65, baseProb + 0.05),
         interventionCost: 500,
+        estimatedFriction: Math.round(context.amount * 0.02)
+      };
+    case 'CHECKOUT_RECOVERY':
+      return {
+        action: 'CHECKOUT_RECOVERY',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
+        estimatedProbability: Math.min(0.60, baseProb),
+        interventionCost: 200,
+        estimatedFriction: Math.round(context.amount * 0.03)
+      };
+    case 'CUSTOMER_OUTREACH':
+      return {
+        action: 'CUSTOMER_OUTREACH',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
+        estimatedProbability: Math.min(0.50, Math.max(0.1, baseProb - 0.05)),
+        interventionCost: 100,
         estimatedFriction: Math.round(context.amount * 0.02)
       };
     case 'DISPATCH_VERNACULAR_ASSIST':

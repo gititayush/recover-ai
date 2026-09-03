@@ -37,15 +37,32 @@ class DevelopmentFallbackProvider {
 
   async diagnose({ context }) {
     const evidence = [];
-    if (context.failureReason) evidence.push({ field: 'payment.failureReason', value: context.failureReason });
-    evidence.push({ field: 'payment.attemptCount', value: String(context.paymentAttemptCount) });
-    evidence.push({ field: 'case.riskLevel', value: context.riskLevel });
+    if (context.failureReason) evidence.push({ field: 'payment.failureReason', value: String(context.failureReason) });
+    evidence.push({ field: 'payment.attemptCount', value: String(context.paymentAttemptCount || 0) });
+    evidence.push({ field: 'case.riskLevel', value: String(context.riskLevel || 'MEDIUM') });
+
+    const reasonText = `${context.failureReason || ''} ${context.riskReason || ''}`.toLowerCase();
+    let category = 'AMBIGUOUS';
+    if (reasonText.includes('timeout') || reasonText.includes('gateway') || reasonText.includes('bank')) {
+      category = 'TRANSIENT_PAYMENT_FAILURE';
+    } else if (reasonText.includes('checkout') || reasonText.includes('abandon') || reasonText.includes('drop')) {
+      category = 'CHECKOUT_DROPOFF';
+    }
+
     const cause = context.failureReason
-      ? `Deterministic fallback: recorded payment failure reason is ${context.failureReason}.`
-      : 'Deterministic fallback: payment failure is recorded without a specific failure reason.';
-    const action = context.riskLevel === 'HIGH' || context.paymentAttemptCount > 1 ? 'REQUEST_MANUAL_REVIEW' : 'CREATE_PAYMENT_LINK';
-    const category = context.failureReason?.toLowerCase().includes('timeout') ? 'TRANSIENT_PAYMENT_FAILURE' : 'AMBIGUOUS';
-    return { diagnosis: { category, cause, confidence: 0.7, evidence: evidence.slice(0, 3) }, recommendation: { action: actions.includes(action) ? action : 'NO_ACTION' } };
+      ? `Deterministic fallback: recorded reason is ${context.failureReason}.`
+      : (category === 'CHECKOUT_DROPOFF'
+          ? 'Deterministic fallback: checkout drop-off detected at payment step.'
+          : 'Deterministic fallback: payment failure is recorded without a specific failure reason.');
+
+    const action = (context.riskLevel === 'HIGH' && context.amount > 2500000) || context.paymentAttemptCount > 2
+      ? 'REQUEST_MANUAL_REVIEW'
+      : (category === 'CHECKOUT_DROPOFF' ? 'CHECKOUT_RECOVERY' : 'CREATE_PAYMENT_LINK');
+
+    return {
+      diagnosis: { category, cause, confidence: 0.75, evidence: evidence.slice(0, 3) },
+      recommendation: { action: actions.includes(action) ? action : 'NO_ACTION' }
+    };
   }
 }
 

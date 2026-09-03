@@ -4,9 +4,12 @@ const {
   STOP_REASON_CODES,
   ACTION_DISPOSITIONS
 } = require('./stoppingEngine');
+const { STRATEGY_DEFINITIONS } = require('../strategies/strategyRegistry');
+const { playbookEngine } = require('../playbooks/playbookEngine');
 
 const POLICY_VERSION = 'recoverai-policy-v1';
 const ALLOWED_ACTIONS = ['CREATE_PAYMENT_LINK'];
+const SIMULATED_ACTIONS = ['CHECKOUT_RECOVERY', 'CUSTOMER_OUTREACH'];
 
 function evaluatePolicy({
   recoveryCase,
@@ -21,6 +24,7 @@ function evaluatePolicy({
   candidateReference = null,
   isTestMode = true,
   humanApproval = null,
+  allowSimulated = false,
   now = () => new Date()
 } = {}) {
   const targetAction = candidateAction
@@ -66,7 +70,8 @@ function evaluatePolicy({
   }
 
   // RULE 11 — TEST MODE VERIFICATION
-  if (!isTestMode) {
+  const isLiveAction = targetAction === 'CREATE_PAYMENT_LINK';
+  if (isLiveAction && !isTestMode) {
     recordRule('test_mode_verification', 'BLOCK', 'Execution is blocked because application is not configured for Razorpay Test Mode.');
   } else {
     recordRule('test_mode_verification', 'PASS');
@@ -102,6 +107,8 @@ function evaluatePolicy({
     recordRule('action_allowlist', 'BLOCK', 'Proposed action is NO_ACTION; no recovery intervention requested.');
   } else if (targetAction === 'REQUEST_MANUAL_REVIEW') {
     recordRule('action_allowlist', 'REVIEW', 'AI proposed manual review.');
+  } else if (allowSimulated && SIMULATED_ACTIONS.includes(targetAction)) {
+    recordRule('action_allowlist', 'PASS');
   } else if (!ALLOWED_ACTIONS.includes(targetAction)) {
     recordRule('action_allowlist', 'BLOCK', `Action '${targetAction}' is not in the authorized action allowlist.`);
   } else {
@@ -173,6 +180,19 @@ function evaluatePolicy({
     }
   } else {
     recordRule('cooldown_period', 'PASS');
+  }
+
+  // PLAYBOOK-SPECIFIC DOMAIN POLICY CONSTRAINTS
+  const customPolicy = playbookEngine.evaluateCustomPolicy(
+    { recoveryCase, events, existingActions },
+    targetAction,
+    now
+  );
+  if (customPolicy && customPolicy.stop) {
+    const isHardStop = customPolicy.actionDisposition === 'HARD_STOP';
+    recordRule('playbook_custom_policy', isHardStop ? 'BLOCK' : 'REVIEW', customPolicy.humanReadableReason);
+  } else {
+    recordRule('playbook_custom_policy', 'PASS');
   }
 
   // EVALUATE EXPLICIT STOPPING CRITERIA

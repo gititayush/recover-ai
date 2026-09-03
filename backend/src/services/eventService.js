@@ -1,5 +1,5 @@
 const { environment } = require('../config/env');
-const { assessRisk } = require('../risk/detector');
+const { playbookEngine } = require('../playbooks/playbookEngine');
 const { reconcileOutcome, isOutcomeEvent } = require('./reconciliationService');
 
 async function processEvent(repository, event) {
@@ -22,28 +22,29 @@ async function processEvent(repository, event) {
   }
 
   const eventHistory = await repository.getEventsForPayment(event.paymentId);
-  const assessment = assessRisk(event, eventHistory);
+  const assessment = playbookEngine.assessRisk(event, eventHistory);
   const existingCase = await repository.findCaseByPaymentId(event.paymentId);
 
   if (assessment.terminal) {
     if (!existingCase) return { duplicate: false, recoveryCase: null, suppressed: true };
     const wasQueuedOrActive = ['QUEUED', 'RETRY_SCHEDULED', 'CLAIMED'].includes(existingCase.autonomyStatus);
+    const isPaid = assessment.outcome === 'PAID';
     const updated = await repository.updateCase(existingCase.id, {
-      riskStatus: assessment.outcome === 'PAID' ? 'RESOLVED' : 'SUPPRESSED',
-      riskReason: assessment.outcome === 'PAID' ? 'Payment reached a successful terminal state' : 'Payment was refunded; recovery is suppressed',
+      riskStatus: isPaid ? 'RESOLVED' : 'SUPPRESSED',
+      riskReason: isPaid ? 'Payment reached a successful terminal state' : (assessment.outcome === 'OPTED_OUT' ? 'Customer cancelled or opted out of recovery' : 'Payment was refunded; recovery is suppressed'),
       riskLevel: 'LOW',
       outcome: assessment.outcome,
-      autonomyStatus: assessment.outcome === 'PAID' ? 'COMPLETED' : 'BLOCKED',
+      autonomyStatus: isPaid ? 'COMPLETED' : 'BLOCKED',
       lockedUntil: null,
       lockedBy: null,
       lastEventAt: event.timestamp
     });
     await repository.addAudit(updated.id, 'EVENT_RECEIVED', `Received ${event.eventType}`, { eventId: event.eventId });
     await repository.addAudit(updated.id, 'CASE_UPDATED', `Case ${updated.riskStatus.toLowerCase()} after terminal event`, { eventId: event.eventId, outcome: assessment.outcome });
-    if (wasQueuedOrActive && assessment.outcome === 'PAID') {
+    if (wasQueuedOrActive && isPaid) {
       await repository.addAudit(updated.id, 'AUTONOMY_COMPLETED', 'Autonomy job completed: payment settled externally; no recovery action needed', { outcome: assessment.outcome, eventId: event.eventId });
     }
-    return { duplicate: false, recoveryCase: updated, suppressed: assessment.outcome === 'REFUNDED' };
+    return { duplicate: false, recoveryCase: updated, suppressed: !isPaid };
   }
 
   if (!assessment.actionable) {

@@ -63,7 +63,9 @@ async function executePaymentLink(repository, {
   const policyDecision = evaluatePolicy({
     recoveryCase,
     diagnosis,
-    candidateAction: diagnosis?.recommendation?.action || diagnosis?.proposedAction || 'CREATE_PAYMENT_LINK',
+    candidateAction: ['NO_ACTION', 'REQUEST_MANUAL_REVIEW'].includes(diagnosis?.recommendation?.action)
+      ? diagnosis.recommendation.action
+      : 'CREATE_PAYMENT_LINK',
     events,
     existingActions,
     isTestMode,

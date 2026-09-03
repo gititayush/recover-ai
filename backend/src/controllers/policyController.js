@@ -1,5 +1,7 @@
 const { evaluatePolicy } = require('../policy/policyEngine');
 const { executePaymentLink, RecoveryExecutorError } = require('../actions/paymentLinkExecutor');
+const { executeSimulatedAction, SimulatedActionExecutorError } = require('../actions/simulatedActionExecutor');
+const { getStrategy, EXECUTION_MODES } = require('../strategies/strategyRegistry');
 const { createRazorpayClient } = require('../services/razorpayClient');
 
 function createPolicyController(repository, diagnosisService, razorpayClient = createRazorpayClient()) {
@@ -19,7 +21,7 @@ function createPolicyController(repository, diagnosisService, razorpayClient = c
         const policyDecision = evaluatePolicy({
           recoveryCase: detail.recoveryCase,
           diagnosis,
-          candidateAction: request.body?.action || null,
+          candidateAction: request.body?.action || (['REQUEST_MANUAL_REVIEW', 'NO_ACTION', 'CREATE_PAYMENT_LINK'].includes(diagnosis?.recommendation?.action) ? diagnosis.recommendation.action : 'CREATE_PAYMENT_LINK'),
           events: detail.events,
           existingActions,
           isTestMode: razorpayClient.isTestMode !== undefined ? razorpayClient.isTestMode : false
@@ -53,16 +55,34 @@ function createPolicyController(repository, diagnosisService, razorpayClient = c
           diagnosis = await repository.createDiagnosis({ recoveryCaseId: detail.recoveryCase.id, ...decision });
         }
 
-        const result = await executePaymentLink(repository, {
-          recoveryCase: detail.recoveryCase,
-          diagnosis,
-          events: detail.events,
-          razorpayClient
-        });
+        const targetAction = request.body?.action || diagnosis?.recommendation?.action || diagnosis?.proposedAction || 'CREATE_PAYMENT_LINK';
+        const strategy = getStrategy(targetAction);
+
+        let result;
+        if (targetAction === 'CREATE_PAYMENT_LINK') {
+          result = await executePaymentLink(repository, {
+            recoveryCase: detail.recoveryCase,
+            diagnosis,
+            events: detail.events,
+            razorpayClient
+          });
+        } else if (strategy && strategy.executionMode === EXECUTION_MODES.SIMULATED) {
+          result = await executeSimulatedAction(repository, {
+            recoveryCase: detail.recoveryCase,
+            diagnosis,
+            actionType: targetAction,
+            events: detail.events
+          });
+        } else {
+          return response.status(422).json({
+            error: 'EXECUTION_REJECTED',
+            message: `Action '${targetAction}' is a ${strategy?.executionMode || 'CONTROL'} action and cannot be directly executed.`
+          });
+        }
 
         return response.status(result.duplicate ? 200 : 201).json(result);
       } catch (error) {
-        if (error instanceof RecoveryExecutorError) {
+        if (error instanceof RecoveryExecutorError || error instanceof SimulatedActionExecutorError) {
           return response.status(error.statusCode || 422).json({
             error: 'EXECUTION_REJECTED',
             message: error.message,

@@ -3,15 +3,23 @@ function latestEvent(events, eventType) {
 }
 
 function buildCaseContext(detail, now = new Date()) {
-  const { recoveryCase, events } = detail;
+  const { recoveryCase, events = [] } = detail;
   const lastEvent = events.at(-1) || null;
   const lastFailure = latestEvent(events, 'payment.failed');
   const failureCount = events.filter((event) => event.eventType === 'payment.failed').length;
-  const timeSinceFailureMinutes = lastFailure
-    ? Math.max(0, Math.floor((now.getTime() - new Date(lastFailure.timestamp || lastFailure.occurredAt).getTime()) / 60000))
+
+  const lastDropOff = latestEvent(events, 'checkout.abandoned')
+    || latestEvent(events, 'checkout.drop_off')
+    || latestEvent(events, 'checkout.payment_step_reached')
+    || (lastEvent?.eventType?.startsWith('checkout.') ? lastEvent : null);
+
+  const lastActionable = lastFailure || lastDropOff;
+
+  const timeSinceFailureMinutes = lastActionable
+    ? Math.max(0, Math.floor((now.getTime() - new Date(lastActionable.timestamp || lastActionable.occurredAt).getTime()) / 60000))
     : null;
 
-  const hasPriorSuccess = events.some((event) => ['captured', 'paid', 'authorized'].includes(event.paymentStatus) || event.eventType === 'order.paid');
+  const hasPriorSuccess = events.some((event) => ['captured', 'paid', 'authorized'].includes(event.paymentStatus) || event.eventType === 'order.paid' || event.eventType === 'checkout.completed');
   const hasOrder = Boolean(recoveryCase.orderId || events.some((event) => Boolean(event.orderId)));
 
   let errorCode = null;
@@ -23,6 +31,12 @@ function buildCaseContext(detail, now = new Date()) {
     }
   }
 
+  const failureReason = lastFailure?.failureReason
+    || lastDropOff?.failureReason
+    || lastDropOff?.rawPayload?.abandonmentReason
+    || recoveryCase.riskReason
+    || null;
+
   return {
     caseId: recoveryCase.id,
     amount: recoveryCase.amount,
@@ -31,8 +45,8 @@ function buildCaseContext(detail, now = new Date()) {
     riskLevel: recoveryCase.riskLevel,
     riskReason: recoveryCase.riskReason,
     paymentStatus: lastEvent?.paymentStatus || null,
-    orderStatus: events.some((event) => event.eventType === 'order.paid') ? 'paid' : null,
-    failureReason: lastFailure?.failureReason || null,
+    orderStatus: events.some((event) => event.eventType === 'order.paid' || event.eventType === 'checkout.completed') ? 'paid' : null,
+    failureReason,
     errorCode,
     paymentAttemptCount: failureCount,
     timeSinceFailureMinutes,
@@ -41,7 +55,7 @@ function buildCaseContext(detail, now = new Date()) {
     recentEvents: events.slice(-5).map((event) => ({
       eventType: event.eventType,
       paymentStatus: event.paymentStatus,
-      failureReason: event.failureReason || null,
+      failureReason: event.failureReason || event.rawPayload?.abandonmentReason || null,
       timestamp: event.timestamp || event.occurredAt
     }))
   };
