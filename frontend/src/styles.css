@@ -327,8 +327,79 @@
 .step-circle { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: white; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 700; }
 .delivery-step-item.completed .step-circle { background: #16a34a; }
 .delivery-step-item.current .step-circle { background: #2563eb; }
-.step-label { font-size: 0.72rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; }
-.delivery-failed-banner { margin-top: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; }
+/* Milestone 8: Failure Intelligence 3-Layer Architecture UX */
+.fi-root-container { display: flex; flex-direction: column; gap: 14px; }
+.fi-layer-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; position: relative; }
+.fi-layer-signal { border-left: 4px solid #3b82f6; background: #fafcff; }
+.fi-layer-interpretation { border-left: 4px solid #8b5cf6; background: #fcfaff; }
+.fi-layer-implication { border-left: 4px solid #10b981; background: #f9fdfb; }
+.fi-layer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.fi-layer-badge { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: #475569; }
+.badge-strength { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; }
+.badge-strength-strong { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.badge-strength-partial { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.badge-strength-minimal { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+.fi-signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.fi-prop-label { font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; display: block; margin-bottom: 2px; }
+.fi-prop-val { font-size: 0.88rem; font-weight: 600; color: #1e293b; }
+.fi-prop-val code { font-size: 0.82rem; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; }
+.text-failed { color: #dc2626; font-weight: 800; }
+
+.fi-provider-desc { background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin-top: 8px; }
+.fi-desc-text { font-size: 0.85rem; color: #334155; font-style: italic; }
+
+.fi-evidence-facts { margin-top: 10px; }
+.fi-facts-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.fi-fact-chip { font-size: 0.76rem; background: white; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 4px; color: #334155; }
+.fi-fact-chip code { color: #2563eb; }
+
+/* Interpretation Layer */
+.fi-confidence-wrap { display: flex; align-items: center; gap: 6px; }
+.fi-confidence-num { font-size: 0.95rem; font-weight: 800; }
+.fi-unknown-alert { display: flex; align-items: flex-start; gap: 10px; background: #fff5f5; border: 1px solid #fca5a5; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; color: #991b1b; }
+.fi-unknown-icon { font-size: 1.2rem; line-height: 1; }
+.fi-unknown-alert b { display: block; font-size: 0.88rem; margin-bottom: 2px; }
+.fi-unknown-alert p { margin: 0; font-size: 0.8rem; line-height: 1.4; color: #7f1d1d; }
+
+.fi-taxonomy-banner { background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; }
+.fi-family-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.fi-family-label { font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+.badge-family { background: #ede9fe; color: #6d28d9; font-weight: 800; font-size: 0.78rem; padding: 2px 8px; border-radius: 4px; }
+.badge-type { background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+.fi-cause-text { margin: 4px 0 0 0; font-size: 0.95rem; color: #0f172a; font-weight: 600; }
+
+.fi-meter-container { margin: 10px 0; }
+.fi-meter-label-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: #64748b; margin-bottom: 4px; font-weight: 600; }
+.fi-meter-track { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.fi-meter-fill { height: 100%; transition: width 0.3s ease; border-radius: 4px; }
+.meter-high { background: #16a34a; }
+.meter-med { background: #d97706; }
+.meter-low { background: #dc2626; }
+
+.fi-basis-section { margin-top: 10px; }
+.fi-basis-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.fi-basis-chip { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+
+.fi-unknowns-section { margin-top: 10px; background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; }
+.fi-unknowns-list { margin: 4px 0 0 0; padding-left: 14px; list-style: none; }
+.fi-unknowns-list li { font-size: 0.8rem; color: #64748b; margin-bottom: 2px; line-height: 1.4; }
+.bullet-unproven { color: #f59e0b; font-weight: bold; margin-right: 4px; }
+
+.fi-meta-provenance { display: flex; gap: 16px; margin-top: 10px; font-size: 0.72rem; color: #64748b; flex-wrap: wrap; }
+.fi-meta-provenance code { font-size: 0.72rem; }
+
+/* Implication Layer */
+.fi-rationale-box { background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; }
+.fi-rationale-text { margin: 4px 0 0 0; font-size: 0.85rem; color: #334155; line-height: 1.45; }
+.candidate-card-recommended { border-color: #2563eb; background: #eff6ff; box-shadow: 0 1px 4px rgba(37,99,235,0.12); }
+.candidate-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.badge-recommended { background: #2563eb; color: white; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.04em; }
+.candidate-execution-mode { margin-top: 8px; }
+.badge-exec-mode { font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+.badge-exec-live_provider { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.badge-exec-simulated { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+.badge-exec-control { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
 /* Responsive Queries */
 @media (max-width: 1024px) {

@@ -18,6 +18,9 @@ function baseProbability(context) {
   let probability = byRisk[context.riskLevel] || 0.25;
   if (context.failureReason?.toLowerCase().includes('timeout')) probability += 0.1;
   if (context.paymentAttemptCount > 1) probability += 0.05;
+  if (context.evidenceStrength === 'MINIMAL' && context.failureFamily === 'UNKNOWN_FAILURE') {
+    probability = Math.min(probability, 0.35);
+  }
   return Math.min(probability, 0.7);
 }
 
@@ -122,7 +125,7 @@ function getActionDefinition(action, context, baseProb) {
   }
 }
 
-function evaluateCandidates(context, category = null) {
+function evaluateCandidates(context, category = null, failureFamily = null) {
   const probability = baseProbability(context);
 
   let allowedActions;
@@ -136,6 +139,12 @@ function evaluateCandidates(context, category = null) {
     allowedActions = ['DISPATCH_VERNACULAR_ASSIST', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else if (context.playbook === 'promise_to_pay') {
     allowedActions = ['RECORD_PROMISE_TO_PAY', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+  } else if (failureFamily === 'UNKNOWN_FAILURE') {
+    allowedActions = ['REQUEST_MANUAL_REVIEW', 'CREATE_PAYMENT_LINK', 'NO_ACTION'];
+  } else if (failureFamily === 'INSUFFICIENT_FUNDS') {
+    allowedActions = ['CUSTOMER_OUTREACH', 'SCHEDULE_RETRY_WINDOW', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+  } else if (failureFamily === 'BANK_SWITCH_TIMEOUT' || failureFamily === 'GATEWAY_TECHNICAL_FAILURE') {
+    allowedActions = ['CREATE_PAYMENT_LINK', 'SCHEDULE_RETRY_WINDOW', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else {
     allowedActions = ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   }

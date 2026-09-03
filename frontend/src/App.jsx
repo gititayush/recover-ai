@@ -483,6 +483,7 @@ function CaseDetail({
         generating={generatingDiagnosis}
         onGenerate={onGenerateDiagnosis}
         currency={recoveryCase.currency}
+        caseDetail={detail}
       />
 
       {/* Policy Guardrails & Action Panel */}
@@ -539,95 +540,271 @@ function CaseDetail({
   );
 }
 
-function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency }) {
+function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency, caseDetail }) {
+  const latestEvent = caseDetail?.events?.[caseDetail.events.length - 1] || caseDetail?.events?.[0] || null;
+  const rawPayload = latestEvent?.rawPayload || {};
+  const providerErrorCode = diagnosis?.diagnosis?.providerEvidence?.providerErrorCode || rawPayload.error_code || null;
+  const providerErrorSource = diagnosis?.diagnosis?.providerEvidence?.providerErrorSource || rawPayload.error_source || null;
+  const providerErrorStep = diagnosis?.diagnosis?.providerEvidence?.providerErrorStep || rawPayload.error_step || null;
+  const providerErrorDescription = diagnosis?.diagnosis?.providerEvidence?.providerErrorDescription || rawPayload.error_description || null;
+  const paymentStatus = diagnosis?.diagnosis?.providerEvidence?.status || latestEvent?.paymentStatus || 'failed';
+  const failureReason = diagnosis?.diagnosis?.providerEvidence?.failureReason || latestEvent?.failureReason || caseDetail?.recoveryCase?.riskReason || '(unspecified)';
+  const attemptCount = diagnosis?.diagnosis?.providerEvidence?.attemptCount || latestEvent?.attemptCount || caseDetail?.events?.length || 1;
+  const evidenceStrength = diagnosis?.diagnosis?.evidenceStrength || diagnosis?.diagnosis?.providerEvidence?.evidenceStrength || 'MINIMAL';
+
   if (!diagnosis) {
     return (
-      <section className="panel-box diagnosis-box">
+      <section className="panel-box diagnosis-box fi-root-container">
         <div className="panel-box-header">
-          <h3>AI PROPOSAL · Root Cause Diagnosis</h3>
+          <div>
+            <h3>FAILURE INTELLIGENCE · Root Cause Engine</h3>
+            <small className="muted">Three-layer evidence architecture: Provider Facts → Revflow Interpretation → Recovery Implication</small>
+          </div>
           <span className="badge-pending">Awaiting Analysis</span>
         </div>
-        <p className="empty">No AI diagnosis generated for this case yet.</p>
+
+        {/* LAYER 1 PREVIEW: PROVIDER SIGNAL */}
+        <div className="fi-layer-card fi-layer-signal">
+          <div className="fi-layer-badge">LAYER 1 · INCOMING PROVIDER SIGNAL</div>
+          <div className="fi-signal-grid">
+            <div>
+              <span className="fi-prop-label">Status</span>
+              <span className="fi-prop-val text-failed">{paymentStatus.toUpperCase()}</span>
+            </div>
+            <div>
+              <span className="fi-prop-label">Recorded Reason</span>
+              <span className="fi-prop-val">{failureReason}</span>
+            </div>
+            <div>
+              <span className="fi-prop-label">Error Code</span>
+              <span className="fi-prop-val"><code>{providerErrorCode || '—'}</code></span>
+            </div>
+            <div>
+              <span className="fi-prop-label">Error Source</span>
+              <span className="fi-prop-val"><code>{providerErrorSource || '—'}</code></span>
+            </div>
+            <div>
+              <span className="fi-prop-label">Error Step</span>
+              <span className="fi-prop-val"><code>{providerErrorStep || '—'}</code></span>
+            </div>
+            <div>
+              <span className="fi-prop-label">Attempts</span>
+              <span className="fi-prop-val">{attemptCount}</span>
+            </div>
+          </div>
+        </div>
+
+        <p className="empty" style={{ margin: '14px 0 8px 0' }}>No root-cause diagnosis proposal has been generated for this case yet.</p>
         {error && <p className="error">{error}</p>}
         <button onClick={onGenerate} disabled={generating} className="btn-primary">
-          {generating ? 'Running Diagnosis Engine…' : 'RUN AI DIAGNOSIS'}
+          {generating ? 'Running Failure Intelligence Engine…' : 'RUN FAILURE INTELLIGENCE ENGINE'}
         </button>
       </section>
     );
   }
 
+  const failureFamily = diagnosis?.diagnosis?.failureFamily || 'UNKNOWN_FAILURE';
+  const failureType = diagnosis?.diagnosis?.failureType || 'UNSPECIFIED_FAILURE';
+  const confidence = Number(diagnosis?.diagnosis?.confidence ?? 0);
+  const confidencePct = Math.round(confidence * 100);
+  const isUnknown = failureFamily === 'UNKNOWN_FAILURE' || confidence < 0.40;
+
+  const classificationBasis = diagnosis?.diagnosis?.classificationBasis || [];
+  const unknowns = diagnosis?.diagnosis?.unknowns || [];
+  const evidenceFacts = diagnosis?.diagnosis?.evidence || [];
+
   return (
-    <section className="panel-box diagnosis-box">
+    <section className="panel-box diagnosis-box fi-root-container">
       <div className="panel-box-header">
         <div>
-          <h3>AI PROPOSAL · Root Cause Diagnosis</h3>
-          <small className="muted">Advisory inference grounded in normalized payment facts (No execution authority)</small>
+          <h3>FAILURE INTELLIGENCE · Root Cause Engine</h3>
+          <small className="muted">Verified 3-layer decomposition · Provider Facts → Canonical Interpretation → Policy Decisions</small>
         </div>
-        <span className="badge-success">Analysis Complete</span>
+        <span className="badge-success">Intelligence Synthesized</span>
       </div>
 
-      <div className="diagnosis-cause-banner">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-          <span className="cause-label">Identified Root Cause:</span>
-          <span className="badge-category" style={{ background: '#dbeafe', color: '#1e40af', fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px' }}>
-            {diagnosis.diagnosis.category || 'TRANSIENT_PAYMENT_FAILURE'}
+      {/* LAYER 1: PROVIDER SIGNAL (RAW / NORMALIZED) */}
+      <div className="fi-layer-card fi-layer-signal">
+        <div className="fi-layer-header">
+          <span className="fi-layer-badge">LAYER 1 · PROVIDER SIGNAL (AUTHORITATIVE FACTS)</span>
+          <span className={`badge-strength badge-strength-${evidenceStrength.toLowerCase()}`}>
+            Evidence: {evidenceStrength}
           </span>
         </div>
-        <h4>{diagnosis.diagnosis.cause}</h4>
-      </div>
 
-      <dl className="diagnosis-meta-grid">
-        <div>
-          <dt>Diagnostic Confidence</dt>
-          <dd><b className="text-confidence">{Math.round(diagnosis.diagnosis.confidence * 100)}%</b></dd>
+        <div className="fi-signal-grid">
+          <div>
+            <span className="fi-prop-label">Payment Status</span>
+            <span className="fi-prop-val text-failed">{paymentStatus.toUpperCase()}</span>
+          </div>
+          <div>
+            <span className="fi-prop-label">Failure Reason</span>
+            <span className="fi-prop-val">{failureReason}</span>
+          </div>
+          <div>
+            <span className="fi-prop-label">Error Code</span>
+            <span className="fi-prop-val"><code>{providerErrorCode || 'none_reported'}</code></span>
+          </div>
+          <div>
+            <span className="fi-prop-label">Error Source</span>
+            <span className="fi-prop-val"><code>{providerErrorSource || 'none_reported'}</code></span>
+          </div>
+          <div>
+            <span className="fi-prop-label">Error Step</span>
+            <span className="fi-prop-val"><code>{providerErrorStep || 'none_reported'}</code></span>
+          </div>
+          <div>
+            <span className="fi-prop-label">Attempt Count</span>
+            <span className="fi-prop-val">{attemptCount}</span>
+          </div>
         </div>
-        <div>
-          <dt>Proposed Recovery Action</dt>
-          <dd><code>{diagnosis.proposedAction || diagnosis.recommendation.action}</code></dd>
-        </div>
-        <div>
-          <dt>Inference Source</dt>
-          <dd>{diagnosis.source}</dd>
-        </div>
-        <div>
-          <dt>Model / Schema Version</dt>
-          <dd>{diagnosis.model} ({diagnosis.promptVersion})</dd>
-        </div>
-      </dl>
 
-      <div className="evidence-section">
-        <h4>Grounded Evidence Facts (Normalized Webhook Telemetry)</h4>
-        <ul className="evidence-list">
-          {diagnosis.diagnosis.evidence.map((item) => (
-            <li key={item.field}>
-              <code>{item.field}</code>: <span>{item.value}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+        {providerErrorDescription && (
+          <div className="fi-provider-desc">
+            <span className="fi-prop-label">Provider Error Description:</span>
+            <span className="fi-desc-text">{providerErrorDescription}</span>
+          </div>
+        )}
 
-      <div className="recommendation-reason-box">
-        <b>AI Strategy Rationale: </b>
-        <span>{diagnosis.recommendation.reason}</span>
-      </div>
-
-      <div className="candidates-section">
-        <h4>Evaluated Candidate Interventions</h4>
-        <div className="candidates-grid">
-          {diagnosis.candidates.map((candidate) => (
-            <div key={candidate.action} className="candidate-card">
-              <b>{candidate.action}</b>
-              <div className="candidate-stats">
-                <span>{Math.round(candidate.estimatedProbability * 100)}% Est. Conversion</span>
-                <b>{formatMoney(candidate.estimatedRecoveryValue, currency)}</b>
-              </div>
+        {evidenceFacts.length > 0 && (
+          <div className="fi-evidence-facts">
+            <span className="fi-prop-label">Grounded Webhook Facts Cited:</span>
+            <div className="fi-facts-chips">
+              {evidenceFacts.map((item) => (
+                <span key={item.field} className="fi-fact-chip">
+                  <code>{item.field}</code>: <b>{item.value}</b>
+                </span>
+              ))}
             </div>
-          ))}
+          </div>
+        )}
+      </div>
+
+      {/* LAYER 2: REVFLOW INTERPRETATION (CANONICAL / AI) */}
+      <div className="fi-layer-card fi-layer-interpretation">
+        <div className="fi-layer-header">
+          <span className="fi-layer-badge">LAYER 2 · REVFLOW INTERPRETATION</span>
+          <div className="fi-confidence-wrap">
+            <span className="fi-confidence-num" style={{ color: confidencePct >= 70 ? '#16a34a' : (confidencePct >= 40 ? '#d97706' : '#dc2626') }}>
+              {confidencePct}% Confidence
+            </span>
+          </div>
+        </div>
+
+        {isUnknown && (
+          <div className="fi-unknown-alert">
+            <div className="fi-unknown-icon">⚠️</div>
+            <div>
+              <b>UNKNOWN FAILURE — Provider supplied insufficient diagnostic evidence to establish a specific root cause.</b>
+              <p>The provider reported no actionable error code, failure step, or bank reason. Revflow strictly abstains from inventing ungrounded failure hypotheses.</p>
+            </div>
+          </div>
+        )}
+
+        <div className="fi-taxonomy-banner">
+          <div className="fi-family-row">
+            <span className="fi-family-label">Canonical Family:</span>
+            <span className="badge-family">{failureFamily}</span>
+            <span className="badge-type">{failureType}</span>
+          </div>
+          <h4 className="fi-cause-text">{diagnosis.diagnosis.cause}</h4>
+        </div>
+
+        {/* Confidence Meter Bar */}
+        <div className="fi-meter-container">
+          <div className="fi-meter-label-row">
+            <span>Inference Confidence Level</span>
+            <b>{confidencePct}%</b>
+          </div>
+          <div className="fi-meter-track">
+            <div
+              className={`fi-meter-fill ${confidencePct >= 70 ? 'meter-high' : (confidencePct >= 40 ? 'meter-med' : 'meter-low')}`}
+              style={{ width: `${Math.max(confidencePct, 5)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Classification Basis */}
+        {classificationBasis.length > 0 && (
+          <div className="fi-basis-section">
+            <span className="fi-prop-label">Classification Basis (Grounding Proof):</span>
+            <div className="fi-basis-chips">
+              {classificationBasis.map((basis) => (
+                <span key={basis} className="fi-basis-chip">
+                  <span className="check-icon">✓</span> {basis}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Unknowns / Unproven List */}
+        {unknowns.length > 0 && (
+          <div className="fi-unknowns-section">
+            <span className="fi-prop-label">Unknowns & Unproven Telemetry (Abstention Guard):</span>
+            <ul className="fi-unknowns-list">
+              {unknowns.map((u, idx) => (
+                <li key={idx}>
+                  <span className="bullet-unproven">•</span> {u}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="fi-meta-provenance">
+          <span>Model: <code>{diagnosis.model}</code></span>
+          <span>Prompt: <code>{diagnosis.promptVersion}</code></span>
+          <span>Source: <b>{diagnosis.source}</b></span>
         </div>
       </div>
 
-      <p className="notice-subtle">
-        Advisory Proposal Only — All financial interventions require deterministic policy guardrails approval before execution.
+      {/* LAYER 3: RECOVERY IMPLICATION */}
+      <div className="fi-layer-card fi-layer-implication">
+        <div className="fi-layer-header">
+          <span className="fi-layer-badge">LAYER 3 · RECOVERY IMPLICATION</span>
+          <span className="badge-policy-allow">Policy Bounded</span>
+        </div>
+
+        <div className="fi-rationale-box">
+          <span className="fi-prop-label">AI Strategy Rationale:</span>
+          <p className="fi-rationale-text">{diagnosis.recommendation.reason}</p>
+        </div>
+
+        <div className="candidates-section" style={{ marginTop: '12px' }}>
+          <span className="fi-prop-label">Evaluated Candidate Interventions:</span>
+          <div className="candidates-grid" style={{ marginTop: '8px' }}>
+            {diagnosis.candidates.map((candidate) => {
+              const isRecommended = candidate.action === (diagnosis.recommendation?.action || diagnosis.proposedAction);
+              return (
+                <div key={candidate.action} className={`candidate-card ${isRecommended ? 'candidate-card-recommended' : ''}`}>
+                  <div className="candidate-header-row">
+                    <b>{candidate.action}</b>
+                    {isRecommended && <span className="badge-recommended">RECOMMENDED</span>}
+                  </div>
+                  <div className="candidate-stats">
+                    <span>{Math.round(candidate.estimatedProbability * 100)}% Est. Conversion</span>
+                    <b>{formatMoney(candidate.estimatedRecoveryValue, currency)}</b>
+                  </div>
+                  <div className="candidate-execution-mode">
+                    <span className={`badge-exec-mode badge-exec-${(candidate.executionMode || 'control').toLowerCase()}`}>
+                      {candidate.executionMode || (candidate.isLiveExecutable ? 'LIVE_PROVIDER' : 'CONTROL')}
+                    </span>
+                    {candidate.strategyDescription && (
+                      <small className="muted" style={{ display: 'block', marginTop: '4px', fontSize: '0.72rem' }}>
+                        {candidate.strategyDescription}
+                      </small>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <p className="notice-subtle" style={{ margin: '8px 0 0 0' }}>
+        Advisory Intelligence Only — All interventions remain bounded by server-owned amounts and deterministic policy guardrails.
       </p>
     </section>
   );

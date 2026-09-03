@@ -1,4 +1,5 @@
 const { playbookEngine } = require('../playbooks/playbookEngine');
+const { extractProviderEvidence } = require('./failureTaxonomy');
 
 function latestEvent(events, eventType) {
   return [...events].reverse().find((event) => event.eventType === eventType) || null;
@@ -39,16 +40,16 @@ function buildCaseContext(detail, now = new Date()) {
   );
   const hasOrder = Boolean(recoveryCase.orderId || events.some((event) => Boolean(event.orderId)));
 
-  let errorCode = null;
-  if (lastFailure) {
-    if (lastFailure.errorCode) {
-      errorCode = lastFailure.errorCode;
-    } else if (lastFailure.rawPayload && typeof lastFailure.rawPayload === 'object') {
-      errorCode = lastFailure.rawPayload.error_code || lastFailure.rawPayload?.payload?.payment?.entity?.error_code || null;
-    }
+  const primaryEvent = lastFailure || lastActionable || lastEvent || {};
+  const providerEvidence = extractProviderEvidence(primaryEvent.rawPayload || {}, primaryEvent);
+
+  let errorCode = providerEvidence.providerErrorCode;
+  if (!errorCode && lastFailure?.errorCode) {
+    errorCode = lastFailure.errorCode;
   }
 
   const failureReason = lastFailure?.failureReason
+    || providerEvidence.failureReason
     || lastDropOff?.failureReason
     || lastDropOff?.rawPayload?.abandonmentReason
     || lastSubscriptionFailure?.failureReason
@@ -71,6 +72,14 @@ function buildCaseContext(detail, now = new Date()) {
     orderStatus: events.some((event) => event.eventType === 'order.paid' || event.eventType === 'checkout.completed' || event.eventType === 'subscription.charged' || event.eventType === 'invoice.paid') ? 'paid' : null,
     failureReason,
     errorCode,
+    providerErrorCode: providerEvidence.providerErrorCode,
+    providerErrorSource: providerEvidence.providerErrorSource,
+    providerErrorStep: providerEvidence.providerErrorStep,
+    providerErrorDescription: providerEvidence.providerErrorDescription,
+    paymentMethod: providerEvidence.paymentMethod,
+    failureSignature: providerEvidence.failureSignature,
+    evidenceStrength: providerEvidence.evidenceStrength,
+    providerEvidence,
     paymentAttemptCount: failureCount,
     timeSinceFailureMinutes,
     hasOrder,
@@ -98,7 +107,14 @@ function contextFacts(context) {
     'payment.errorCode': context.errorCode,
     'payment.attemptCount': String(context.paymentAttemptCount),
     'payment.timeSinceFailureMinutes': context.timeSinceFailureMinutes === null ? null : String(context.timeSinceFailureMinutes),
-    'order.status': context.orderStatus
+    'order.status': context.orderStatus,
+    'provider.errorCode': context.providerErrorCode,
+    'provider.errorSource': context.providerErrorSource,
+    'provider.errorStep': context.providerErrorStep,
+    'provider.errorDescription': context.providerErrorDescription,
+    'provider.paymentMethod': context.paymentMethod,
+    'provider.evidenceStrength': context.evidenceStrength,
+    'provider.failureSignature': context.failureSignature
   };
 }
 

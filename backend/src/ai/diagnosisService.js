@@ -30,8 +30,12 @@ function terminalProposal(context) {
   return {
     diagnosis: {
       category: 'TERMINAL_STATE',
+      failureFamily: 'UNKNOWN_FAILURE',
+      failureType: 'TERMINAL_STATE_REACHED',
       cause: 'Terminal payment or case state prevents recovery intervention.',
       confidence: 1,
+      classificationBasis: [field],
+      unknowns: ['No further recovery actions are permitted for terminal states.'],
       evidence: [{ field, value }]
     },
     recommendation: { action: 'NO_ACTION' }
@@ -45,8 +49,15 @@ function createDiagnosisService({ provider = createAiProvider({ apiKey: environm
       const terminal = isTerminal(context);
       const proposal = terminal ? terminalProposal(context) : parseDiagnosisProposal(await provider.diagnose({ context, prompt: { version: PROMPT_VERSION, system: SYSTEM_PROMPT } }), context);
       const category = proposal.diagnosis?.category || null;
-      const candidates = evaluateCandidates(context, category);
+      const failureFamily = proposal.diagnosis?.failureFamily || null;
+      const candidates = evaluateCandidates(context, category, failureFamily);
       const recommendation = selectRecommendation(proposal, candidates, context, confidenceThreshold);
+
+      // Attach provider evidence facts
+      if (context.providerEvidence && proposal.diagnosis) {
+        proposal.diagnosis.providerEvidence = context.providerEvidence;
+      }
+
       return {
         diagnosis: proposal.diagnosis,
         proposedAction: proposal.recommendation.action,

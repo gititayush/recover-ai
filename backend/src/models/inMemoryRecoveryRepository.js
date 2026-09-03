@@ -169,7 +169,30 @@ class InMemoryRecoveryRepository {
 
   async createDiagnosis(data) {
     if (await this.findDiagnosisByCaseId(data.recoveryCaseId)) return null;
-    const diagnosis = { id: this.nextAiDiagnosisId++, createdAt: new Date().toISOString(), ...data };
+    const diagnosis = {
+      id: this.nextAiDiagnosisId++,
+      createdAt: new Date().toISOString(),
+      recoveryCaseId: Number(data.recoveryCaseId),
+      diagnosis: {
+        cause: data.diagnosis.cause,
+        confidence: Number(data.diagnosis.confidence),
+        evidence: Array.isArray(data.diagnosis.evidence) ? data.diagnosis.evidence : [],
+        failureFamily: data.diagnosis.failureFamily || null,
+        failureType: data.diagnosis.failureType || null,
+        classificationBasis: data.diagnosis.classificationBasis || [],
+        unknowns: data.diagnosis.unknowns || [],
+        providerEvidence: data.diagnosis.providerEvidence || null,
+        category: data.diagnosis.category || null,
+        evidenceStrength: data.diagnosis.evidenceStrength || null
+      },
+      proposedAction: data.proposedAction,
+      recommendation: data.recommendation,
+      candidates: data.candidates,
+      provider: data.provider,
+      model: data.model,
+      promptVersion: data.promptVersion,
+      source: data.source
+    };
     this.aiDiagnoses.push(diagnosis);
     return diagnosis;
   }

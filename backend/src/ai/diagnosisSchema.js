@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { contextFacts } = require('./contextBuilder');
+const { FAILURE_FAMILIES, guardFailureClassification, classifyFailureEvidence } = require('./failureTaxonomy');
 
 const EXECUTABLE_ACTIONS = ['CREATE_PAYMENT_LINK'];
 const ADVISORY_ACTIONS = [
@@ -26,7 +27,14 @@ const evidenceFields = [
   'payment.errorCode',
   'payment.attemptCount',
   'payment.timeSinceFailureMinutes',
-  'order.status'
+  'order.status',
+  'provider.errorCode',
+  'provider.errorSource',
+  'provider.errorStep',
+  'provider.errorDescription',
+  'provider.paymentMethod',
+  'provider.evidenceStrength',
+  'provider.failureSignature'
 ];
 
 const DIAGNOSIS_CATEGORIES = [
@@ -44,8 +52,13 @@ const DIAGNOSIS_CATEGORIES = [
 const diagnosisProposalSchema = z.object({
   diagnosis: z.object({
     category: z.enum(DIAGNOSIS_CATEGORIES).optional().default('TRANSIENT_PAYMENT_FAILURE'),
+    failureFamily: z.enum(FAILURE_FAMILIES).optional(),
+    failureType: z.string().trim().min(1).max(128).optional(),
     cause: z.string().trim().min(3).max(280),
     confidence: z.number().min(0).max(1),
+    classificationBasis: z.array(z.string().trim().min(1).max(128)).optional(),
+    unknowns: z.array(z.string().trim().min(1).max(280)).optional(),
+    evidenceStrength: z.string().optional(),
     evidence: z.array(z.object({ field: z.enum(evidenceFields), value: z.string().trim().min(1).max(280) }).strict()).min(1).max(6)
   }).strict(),
   recommendation: z.object({ action: z.enum(actions) }).strict()
@@ -137,10 +150,26 @@ function parseDiagnosisProposal(rawResult, context) {
     }
   }
 
-  // Semantic grounding verification of diagnosis.cause
-  validateDiagnosisCause(result.data.diagnosis.cause, context, result.data.diagnosis.evidence);
+  // Populate deterministic failure taxonomy if absent from AI output
+  if (!result.data.diagnosis.failureFamily) {
+    const classification = classifyFailureEvidence(context.providerEvidence || {});
+    result.data.diagnosis.failureFamily = classification.failureFamily;
+    result.data.diagnosis.failureType = classification.failureType;
+    if (!result.data.diagnosis.classificationBasis) {
+      result.data.diagnosis.classificationBasis = classification.classificationBasis;
+    }
+    if (!result.data.diagnosis.unknowns) {
+      result.data.diagnosis.unknowns = classification.unknowns;
+    }
+  }
 
-  return result.data;
+  // Apply deterministic honesty & anti-hallucination unknown guard
+  const guarded = guardFailureClassification(result.data, context.providerEvidence || {}, facts, context);
+
+  // Semantic grounding verification of diagnosis.cause
+  validateDiagnosisCause(guarded.diagnosis.cause, context, guarded.diagnosis.evidence);
+
+  return guarded;
 }
 
 module.exports = {

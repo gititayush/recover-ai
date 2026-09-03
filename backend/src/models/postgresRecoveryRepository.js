@@ -41,13 +41,31 @@ function mapCase(row) {
 }
 
 function mapDiagnosis(row) {
+  const evidenceObj = row.evidence;
+  const isStructured = evidenceObj && typeof evidenceObj === 'object' && !Array.isArray(evidenceObj) && 'cited' in evidenceObj;
   return {
-    id: Number(row.id), recoveryCaseId: Number(row.recovery_case_id),
-    diagnosis: { cause: row.diagnosis_cause, confidence: Number(row.confidence), evidence: row.evidence },
+    id: Number(row.id),
+    recoveryCaseId: Number(row.recovery_case_id),
+    diagnosis: {
+      cause: row.diagnosis_cause,
+      confidence: Number(row.confidence),
+      evidence: isStructured ? evidenceObj.cited : (Array.isArray(row.evidence) ? row.evidence : []),
+      failureFamily: isStructured ? evidenceObj.failureFamily : null,
+      failureType: isStructured ? evidenceObj.failureType : null,
+      classificationBasis: isStructured ? evidenceObj.classificationBasis : [],
+      unknowns: isStructured ? evidenceObj.unknowns : [],
+      providerEvidence: isStructured ? evidenceObj.providerEvidence : null,
+      category: isStructured ? evidenceObj.category : null,
+      evidenceStrength: isStructured ? evidenceObj.evidenceStrength : null
+    },
     proposedAction: row.proposed_action,
     recommendation: { action: row.recommended_action, reason: row.selection_reason },
     candidates: row.candidate_interventions,
-    provider: row.provider, model: row.model, promptVersion: row.prompt_version, source: row.source, createdAt: row.created_at
+    provider: row.provider,
+    model: row.model,
+    promptVersion: row.prompt_version,
+    source: row.source,
+    createdAt: row.created_at
   };
 }
 
@@ -318,10 +336,21 @@ class PostgresRecoveryRepository {
   }
 
   async createDiagnosis(data) {
+    const evidencePayload = {
+      cited: Array.isArray(data.diagnosis.evidence) ? data.diagnosis.evidence : [],
+      failureFamily: data.diagnosis.failureFamily || null,
+      failureType: data.diagnosis.failureType || null,
+      classificationBasis: data.diagnosis.classificationBasis || [],
+      unknowns: data.diagnosis.unknowns || [],
+      providerEvidence: data.diagnosis.providerEvidence || null,
+      category: data.diagnosis.category || null,
+      evidenceStrength: data.diagnosis.evidenceStrength || null
+    };
+
     const result = await this.pool.query(
       `INSERT INTO ai_diagnoses (recovery_case_id, diagnosis_cause, confidence, evidence, proposed_action, recommended_action, selection_reason, candidate_interventions, provider, model, prompt_version, source)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (recovery_case_id) DO NOTHING RETURNING *`,
-      [data.recoveryCaseId, data.diagnosis.cause, data.diagnosis.confidence, JSON.stringify(data.diagnosis.evidence), data.proposedAction, data.recommendation.action, data.recommendation.reason, JSON.stringify(data.candidates), data.provider, data.model, data.promptVersion, data.source]
+      [data.recoveryCaseId, data.diagnosis.cause, data.diagnosis.confidence, JSON.stringify(evidencePayload), data.proposedAction, data.recommendation.action, data.recommendation.reason, JSON.stringify(data.candidates), data.provider, data.model, data.promptVersion, data.source]
     );
     return result.rows[0] ? mapDiagnosis(result.rows[0]) : null;
   }
