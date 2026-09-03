@@ -297,6 +297,7 @@ export default function App() {
                   onExecuteAction={executeRecoveryAction}
                   executingAction={executingAction}
                   actionError={actionError}
+                  onRefreshCase={() => selectCase(selectedCase.recoveryCase.id)}
                 />
               )}
             </article>
@@ -427,7 +428,8 @@ function CaseDetail({
   outcomes,
   onExecuteAction,
   executingAction,
-  actionError
+  actionError,
+  onRefreshCase = null
 }) {
   const { recoveryCase, events, auditEvents } = detail;
 
@@ -501,6 +503,7 @@ function CaseDetail({
         caseDetail={detail}
         actions={actions}
         currency={recoveryCase.currency}
+        onRefreshCase={onRefreshCase}
       />
 
       {/* Chronological Audit Narrative */}
@@ -793,7 +796,7 @@ function PolicyAndActionPanel({ policyData, error, actions, outcomes, onExecute,
   );
 }
 
-function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency = 'INR' }) {
+function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency = 'INR', onRefreshCase = null }) {
   const [selectedLanguage, setSelectedLanguage] = useState('hinglish');
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -801,6 +804,19 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
   const [sendError, setSendError] = useState(null);
+
+  const recoveryCase = caseDetail?.recoveryCase || {};
+  const defaultPhone = recoveryCase.customerReference || '+916202045661';
+  const [recipientPhone, setRecipientPhone] = useState(defaultPhone);
+  const [phoneValidationError, setPhoneValidationError] = useState('');
+
+  useEffect(() => {
+    const phone = caseDetail?.recoveryCase?.customerReference || '+916202045661';
+    setRecipientPhone(phone);
+    setPhoneValidationError('');
+    setSendResult(null);
+    setSendError(null);
+  }, [caseId, caseDetail]);
 
   const fetchPreview = async (lang) => {
     setLoadingPreview(true);
@@ -826,18 +842,31 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
   }, [caseId, selectedLanguage]);
 
   const handleSend = async () => {
+    const cleanedPhone = (recipientPhone || '').trim().replace(/[\s\-()]/g, '');
+    if (!/^\+[1-9]\d{6,14}$/.test(cleanedPhone)) {
+      setPhoneValidationError('Recipient phone must be a valid international E.164 number (e.g. +916202045661).');
+      return;
+    }
+    setPhoneValidationError('');
     setSending(true);
     setSendError(null);
     try {
       const res = await fetch(`/api/cases/${caseId}/communication/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: 'whatsapp', language: selectedLanguage })
+        body: JSON.stringify({
+          channel: 'whatsapp',
+          language: selectedLanguage,
+          recipientPhone: cleanedPhone
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to dispatch communication');
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to dispatch communication');
       setSendResult(data);
       fetchPreview(selectedLanguage);
+      if (typeof onRefreshCase === 'function') {
+        onRefreshCase();
+      }
     } catch (err) {
       setSendError(err.message);
     } finally {
@@ -845,23 +874,111 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
     }
   };
 
+  const isResolved = recoveryCase.riskStatus === 'RESOLVED' ||
+    recoveryCase.outcome === 'RECOVERED' ||
+    (recoveryCase.recoveredAmount && recoveryCase.recoveredAmount > 0) ||
+    preview?.stoppingEvaluation?.reasonCode === 'PAYMENT_RECOVERED';
+
+  const commActions = (caseDetail?.actions || actions || []).filter(
+    (a) => a.actionType === 'CUSTOMER_OUTREACH' || a.actionType === 'DISPATCH_VERNACULAR_ASSIST'
+  );
+  const latestOutreach = commActions.at(-1) || sendResult?.action;
+
+  const refreshDeliveryStatus = async () => {
+    if (typeof onRefreshCase === 'function') {
+      onRefreshCase();
+    }
+    await fetchPreview(selectedLanguage);
+  };
+
   return (
     <section className="panel-box communication-panel-box">
       <div className="panel-box-header">
         <div>
           <h3>GROUNDED MULTILINGUAL OUTREACH · Customer Communication</h3>
-          <small className="muted">Fact-grounded conversational copy via WhatsApp Sandbox (or bounded simulation)</small>
+          <small className="muted">Fact-grounded conversational recovery via WhatsApp Sandbox (Twilio Adapter)</small>
         </div>
         <div className="comm-header-badges">
           <span className="badge-channel">WhatsApp</span>
-          {preview?.providerConfigured ? (
-            <span className="badge-prov-sandbox">WHATSAPP TEST MODE (SANDBOX)</span>
+          {preview?.providerConfigured && preview?.providerMode === 'SANDBOX' ? (
+            <span className="badge-prov-sandbox">WHATSAPP SANDBOX READY</span>
           ) : (
             <span className="badge-prov-simulated">SIMULATION / PROVIDER NOT CONFIGURED</span>
           )}
         </div>
       </div>
 
+      {/* Safety Banners: Resolved Suppression vs. Eligible Outreach */}
+      {isResolved ? (
+        <div className="comm-safety-banner banner-suppressed">
+          <div className="banner-badge-row">
+            <span className="badge-disposition">HARD_STOP</span>
+            <span className="badge-reason-code">{preview?.stoppingEvaluation?.reasonCode || 'PAYMENT_RECOVERED'}</span>
+            <span className="badge-recovered-amount">
+              Recovered: {formatMoney(recoveryCase.recoveredAmount || recoveryCase.amount, currency)}
+            </span>
+          </div>
+          <h4 className="banner-title">🛡️ OUTREACH SUPPRESSED — PAYMENT ALREADY RECOVERED</h4>
+          <p className="banner-explanation">
+            Revflow intentionally refuses to contact a customer after verified recovery. Deterministic stopping rules suppress automated messaging to eliminate customer friction and prevent compliance violations.
+          </p>
+          {preview?.policyReasons && preview.policyReasons.length > 0 && (
+            <div className="banner-policy-reasons">
+              <small>POLICY FIREWALL ENFORCEMENT:</small>
+              <ul>
+                {preview.policyReasons.map((reason, idx) => (
+                  <li key={idx}><code>{reason}</code></li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : preview?.policyDecision === 'ALLOW' ? (
+        <div className="comm-safety-banner banner-eligible">
+          <div className="banner-badge-row">
+            <span className="badge-disposition-allow">CONTINUE</span>
+            <span className="badge-policy-allow">POLICY ALLOW</span>
+            <span className="badge-grounded">✓ GROUNDED FACTS</span>
+          </div>
+          <h4 className="banner-title text-success">✓ CASE ELIGIBLE FOR CONVERSATIONAL RECOVERY</h4>
+          <p className="banner-explanation">
+            Grounded message copy generated with exact context. All policy guardrails and stopping criteria evaluated and cleared. Ready for dispatch via Twilio WhatsApp Sandbox.
+          </p>
+          <div className="eligibility-checklist-grid">
+            <div><b>Grounding:</b> <span className="text-success">Verified</span></div>
+            <div><b>Policy Gate:</b> <span className="text-success">ALLOW</span></div>
+            <div><b>Stopping Rules:</b> <span className="text-success">CONTINUE</span></div>
+            <div><b>Attempt Count:</b> <span>{commActions.length} / 2</span></div>
+            <div><b>Cooldown:</b> <span className="text-success">CLEAR</span></div>
+            <div><b>Provider:</b> <span className={preview?.providerConfigured ? 'text-success' : 'text-warning'}>
+              {preview?.providerConfigured ? 'WHATSAPP SANDBOX READY' : 'SIMULATION MODE'}
+            </span></div>
+          </div>
+        </div>
+      ) : preview && preview.policyDecision !== 'ALLOW' ? (
+        <div className="comm-safety-banner banner-blocked-other">
+          <div className="banner-badge-row">
+            <span className="badge-disposition">{preview.stoppingEvaluation?.actionDisposition || 'BLOCK'}</span>
+            <span className="badge-reason-code">{preview.stoppingEvaluation?.reasonCode || 'POLICY_BLOCKED'}</span>
+          </div>
+          <h4 className="banner-title text-warning">⚠️ OUTREACH RESTRICTED BY POLICY GUARDRAILS</h4>
+          <p className="banner-explanation">
+            {preview.stoppingEvaluation?.humanReadableReason || 'Customer outreach is currently restricted by deterministic safety policies.'}
+          </p>
+          {preview.policyReasons && preview.policyReasons.length > 0 && (
+            <div className="banner-policy-reasons">
+              <small>SPECIFIC POLICY RULES ENFORCED:</small>
+              <ul>
+                {preview.policyReasons.map((reason, idx) => (
+                  <li key={idx}><code>{reason}</code></li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Language Selector */}
       <div className="comm-language-bar">
         <span className="comm-label">LANGUAGE:</span>
         <div className="comm-lang-tabs">
@@ -881,6 +998,7 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
         </div>
       </div>
 
+      {/* Grounded Message Preview & Fact Verification */}
       {loadingPreview ? (
         <p className="muted">Rendering grounded message preview…</p>
       ) : previewError ? (
@@ -927,33 +1045,85 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
         </div>
       ) : null}
 
-      {preview && (
-        <div className="comm-safety-bar">
-          <div className="comm-safety-item">
-            <small>POLICY GATE</small>
-            <b className={preview.policyDecision === 'ALLOW' ? 'text-success' : 'text-warning'}>
-              {preview.policyDecision}
-            </b>
+      {/* Recipient Phone Configuration */}
+      <div className="recipient-input-group">
+        <label htmlFor="recipient-phone-input">
+          <b>RECIPIENT WHATSAPP DESTINATION (E.164):</b>
+        </label>
+        <div className="recipient-input-row">
+          <input
+            id="recipient-phone-input"
+            type="tel"
+            value={recipientPhone}
+            onChange={(e) => {
+              setRecipientPhone(e.target.value);
+              setPhoneValidationError('');
+            }}
+            placeholder="+916202045661"
+            className={`input-recipient-phone ${phoneValidationError ? 'input-error' : ''}`}
+            disabled={sending || isResolved}
+          />
+          {recipientPhone !== defaultPhone && !isResolved && (
+            <button
+              type="button"
+              onClick={() => {
+                setRecipientPhone(defaultPhone);
+                setPhoneValidationError('');
+              }}
+              className="btn-reset-phone"
+              title="Reset to case customer reference"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        {phoneValidationError && <p className="field-error-text">{phoneValidationError}</p>}
+        <small className="muted">
+          Must be registered in your Twilio WhatsApp Sandbox. Defaulted from case customer reference.
+        </small>
+      </div>
+
+      {/* Twilio Delivery Status Tracker */}
+      {latestOutreach && (
+        <div className="delivery-tracker-card">
+          <div className="delivery-tracker-header">
+            <h5>TWILIO WHATSAPP DELIVERY LIFECYCLE</h5>
+            <button type="button" onClick={refreshDeliveryStatus} className="btn-refresh-delivery">
+              🔄 Refresh Delivery Status
+            </button>
           </div>
-          <div className="comm-safety-item">
-            <small>CUSTOMER OPT-OUT</small>
-            <b className={preview.stoppingEvaluation?.reasonCode === 'CUSTOMER_OPT_OUT' ? 'text-danger' : 'text-success'}>
-              {preview.stoppingEvaluation?.reasonCode === 'CUSTOMER_OPT_OUT' ? 'OPTED OUT' : 'CLEAR'}
-            </b>
+          <div className="delivery-meta-row">
+            <span><b>Message ID:</b> <code>{latestOutreach.providerActionId || sendResult?.communication?.providerMessageId || 'Pending'}</code></span>
+            <span><b>Recipient:</b> <code>{latestOutreach.requestMetadata?.communication?.recipient || recipientPhone}</code></span>
+            <span><b>Language:</b> <code>{latestOutreach.requestMetadata?.communication?.language || selectedLanguage}</code></span>
           </div>
-          <div className="comm-safety-item">
-            <small>COOLDOWN</small>
-            <b className={preview.stoppingEvaluation?.reasonCode === 'COOLDOWN_ACTIVE' ? 'text-warning' : 'text-success'}>
-              {preview.stoppingEvaluation?.reasonCode === 'COOLDOWN_ACTIVE' ? 'ACTIVE' : 'CLEAR'}
-            </b>
+          <div className="delivery-steps-stepper">
+            {['QUEUED', 'SENT', 'DELIVERED', 'READ'].map((step, idx) => {
+              const currentStatus = (
+                latestOutreach.requestMetadata?.communication?.status ||
+                latestOutreach.status ||
+                'QUEUED'
+              ).toUpperCase();
+              const ranks = { UNKNOWN: 0, QUEUED: 1, SENT: 2, DELIVERED: 3, READ: 4, FAILED: 5, UNDELIVERED: 5 };
+              const isCompleted = ranks[currentStatus] >= ranks[step];
+              const isCurrent = currentStatus === step;
+              return (
+                <div key={step} className={`delivery-step-item ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''}`}>
+                  <div className="step-circle">{isCompleted ? '✓' : idx + 1}</div>
+                  <span className="step-label">{step}</span>
+                </div>
+              );
+            })}
           </div>
-          <div className="comm-safety-item">
-            <small>PROVIDER DESTINATION</small>
-            <b>{caseDetail?.recoveryCase?.customerReference || '+919876543210 (Test)'}</b>
-          </div>
+          {(latestOutreach.status === 'FAILED' || latestOutreach.requestMetadata?.communication?.status === 'FAILED') && (
+            <div className="delivery-failed-banner">
+              ⚠️ Delivery failed or undelivered by carrier. Check Twilio logs for error details.
+            </div>
+          )}
         </div>
       )}
 
+      {/* Dispatch Action Bar */}
       <div className="comm-action-bar">
         {sendError && <p className="error">{sendError}</p>}
         {sendResult && (
@@ -972,17 +1142,37 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
         )}
 
         <div className="comm-btn-row">
-          <button
-            onClick={handleSend}
-            disabled={sending || loadingPreview || preview?.policyDecision === 'BLOCK'}
-            className="btn-send-whatsapp"
-          >
-            {sending ? 'Dispatching WhatsApp Outreach…' : 'SEND VIA WHATSAPP (TEST / SANDBOX)'}
-          </button>
+          {isResolved ? (
+            <button
+              disabled={true}
+              className="btn-send-whatsapp disabled-blocked"
+              title="Outreach is suppressed because payment has already been recovered."
+            >
+              🔒 OUTREACH SUPPRESSED — PAYMENT ALREADY RECOVERED
+            </button>
+          ) : preview?.policyDecision === 'BLOCK' ? (
+            <button
+              disabled={true}
+              className="btn-send-whatsapp disabled-blocked"
+              title="Outreach blocked by deterministic safety guardrails."
+            >
+              🔒 OUTREACH BLOCKED BY POLICY
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={sending || loadingPreview}
+              className="btn-send-whatsapp"
+            >
+              {sending ? 'Dispatching WhatsApp Outreach…' : '➤ SEND VIA WHATSAPP (TEST / SANDBOX)'}
+            </button>
+          )}
           <span className="notice-subtle">
-            {preview?.providerConfigured
-              ? 'Sends real test message via configured Twilio WhatsApp Sandbox recipient.'
-              : 'Executes simulated WhatsApp dispatch with structured audit and telemetry.'}
+            {isResolved
+              ? 'Settled cases are permanently protected from automated outreach.'
+              : preview?.providerConfigured
+                ? 'Sends real test message via configured Twilio WhatsApp Sandbox recipient.'
+                : 'Executes simulated WhatsApp dispatch with structured audit and telemetry.'}
           </span>
         </div>
       </div>

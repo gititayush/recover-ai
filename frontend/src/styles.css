@@ -272,10 +272,63 @@
 .btn-send-whatsapp { background: #25d366; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; }
 .btn-send-whatsapp:hover { background: #128c7e; }
 .btn-send-whatsapp:disabled { background: #94a3b8; cursor: not-allowed; }
+.btn-send-whatsapp.disabled-blocked { background: #cbd5e1; color: #475569; border: 1px solid #94a3b8; cursor: not-allowed; font-weight: 600; }
 .comm-btn-row { display: flex; align-items: center; gap: 14px; }
 .send-success-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 12px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
 .send-meta { display: flex; gap: 16px; margin-top: 6px; font-size: 0.8rem; color: #1e293b; }
 .badge-sent { background: #22c55e; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+
+/* Enhanced Milestone 7 Safety Banners & Control Plane UX */
+.comm-safety-banner { padding: 14px 16px; border-radius: 8px; margin: 12px 0 16px 0; border: 1px solid transparent; }
+.comm-safety-banner.banner-suppressed { background: #fff5f5; border-color: #fecaca; color: #991b1b; }
+.comm-safety-banner.banner-eligible { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.comm-safety-banner.banner-blocked-other { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.banner-badge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.badge-disposition { background: #dc2626; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+.badge-disposition-allow { background: #16a34a; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+.badge-policy-allow { background: #2563eb; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+.badge-grounded { background: #059669; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+.badge-reason-code { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; font-family: monospace; font-weight: 600; }
+.badge-recovered-amount { background: #dcfce7; color: #15803d; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+.banner-title { font-size: 0.95rem; font-weight: 700; margin: 0 0 6px 0; }
+.banner-explanation { font-size: 0.85rem; line-height: 1.5; margin: 0; }
+.banner-policy-reasons { margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.12); font-size: 0.8rem; }
+.banner-policy-reasons small { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.banner-policy-reasons ul { margin: 6px 0 0 18px; padding: 0; }
+.banner-policy-reasons li { margin-bottom: 2px; }
+.banner-policy-reasons code { font-size: 0.8rem; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px; }
+
+.eligibility-checklist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.12); font-size: 0.82rem; }
+
+/* Recipient Phone Field */
+.recipient-input-group { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; margin: 14px 0; display: flex; flex-direction: column; gap: 6px; }
+.recipient-input-group label { font-size: 0.75rem; font-weight: 700; color: #475569; letter-spacing: 0.05em; }
+.recipient-input-row { display: flex; align-items: center; gap: 8px; }
+.input-recipient-phone { font-family: monospace; font-size: 0.95rem; font-weight: 600; color: #0f172a; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 260px; transition: border-color 0.15s; }
+.input-recipient-phone:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+.input-recipient-phone.input-error { border-color: #ef4444; background: #fff5f5; }
+.input-recipient-phone:disabled { background: #f8fafc; color: #64748b; cursor: not-allowed; }
+.btn-reset-phone { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 7px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; color: #475569; cursor: pointer; }
+.btn-reset-phone:hover { background: #e2e8f0; }
+.field-error-text { color: #dc2626; font-size: 0.8rem; margin: 0; font-weight: 600; }
+
+/* Delivery Status Stepper Card */
+.delivery-tracker-card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin: 14px 0; }
+.delivery-tracker-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.delivery-tracker-header h5 { margin: 0; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; color: #334155; letter-spacing: 0.04em; }
+.btn-refresh-delivery { background: #f8fafc; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 5px; font-size: 0.75rem; font-weight: 600; color: #334155; cursor: pointer; transition: background 0.15s; }
+.btn-refresh-delivery:hover { background: #e2e8f0; }
+.delivery-meta-row { display: flex; gap: 16px; font-size: 0.8rem; color: #475569; margin-bottom: 12px; flex-wrap: wrap; }
+.delivery-meta-row code { font-size: 0.8rem; color: #0f172a; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+.delivery-steps-stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.delivery-step-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 6px; background: #f8fafc; border: 1px solid #f1f5f9; transition: all 0.2s; }
+.delivery-step-item.completed { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.delivery-step-item.current { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 700; box-shadow: 0 1px 3px rgba(37,99,235,0.1); }
+.step-circle { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: white; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 700; }
+.delivery-step-item.completed .step-circle { background: #16a34a; }
+.delivery-step-item.current .step-circle { background: #2563eb; }
+.step-label { font-size: 0.72rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; }
+.delivery-failed-banner { margin-top: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; }
 
 /* Responsive Queries */
 @media (max-width: 1024px) {
