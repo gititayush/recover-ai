@@ -366,6 +366,17 @@ class PostgresRecoveryRepository {
     return result.rows[0] ? mapAction(result.rows[0]) : null;
   }
 
+  async findActionByProviderActionId(providerActionId) {
+    const result = await this.pool.query(
+      `SELECT * FROM recovery_actions 
+       WHERE provider_action_id = $1 
+          OR request_metadata->'communication'->>'providerMessageId' = $1 
+       LIMIT 1`,
+      [providerActionId]
+    );
+    return result.rows[0] ? mapAction(result.rows[0]) : null;
+  }
+
   async findActionsByCaseId(recoveryCaseId) {
     const result = await this.pool.query('SELECT * FROM recovery_actions WHERE recovery_case_id = $1 ORDER BY created_at ASC', [recoveryCaseId]);
     return result.rows.map(mapAction);

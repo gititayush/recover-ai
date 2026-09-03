@@ -212,6 +212,12 @@ class InMemoryRecoveryRepository {
     return this.actions.find((a) => a.providerActionId === paymentLinkId) || null;
   }
 
+  async findActionByProviderActionId(providerActionId) {
+    return this.actions.find(
+      (a) => a.providerActionId === providerActionId || a.requestMetadata?.communication?.providerMessageId === providerActionId
+    ) || null;
+  }
+
   async findActionsByCaseId(recoveryCaseId) {
     return this.actions.filter((a) => a.recoveryCaseId === Number(recoveryCaseId)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }

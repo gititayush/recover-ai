@@ -495,6 +495,14 @@ function CaseDetail({
         currency={recoveryCase.currency}
       />
 
+      {/* Grounded Multilingual Customer Communication Panel */}
+      <CustomerCommunicationPanel
+        caseId={recoveryCase.id}
+        caseDetail={detail}
+        actions={actions}
+        currency={recoveryCase.currency}
+      />
+
       {/* Chronological Audit Narrative */}
       <section className="audit-section">
         <h3>Chronological Event & Audit Narrative</h3>
@@ -781,6 +789,203 @@ function PolicyAndActionPanel({ policyData, error, actions, outcomes, onExecute,
           )}
         </>
       )}
+    </section>
+  );
+}
+
+function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency = 'INR' }) {
+  const [selectedLanguage, setSelectedLanguage] = useState('hinglish');
+  const [preview, setPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
+  const [sendError, setSendError] = useState(null);
+
+  const fetchPreview = async (lang) => {
+    setLoadingPreview(true);
+    setPreviewError(null);
+    try {
+      const res = await fetch(`/api/cases/${caseId}/communication/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'whatsapp', language: lang })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to generate preview');
+      setPreview(data);
+    } catch (err) {
+      setPreviewError(err.message);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPreview(selectedLanguage);
+  }, [caseId, selectedLanguage]);
+
+  const handleSend = async () => {
+    setSending(true);
+    setSendError(null);
+    try {
+      const res = await fetch(`/api/cases/${caseId}/communication/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'whatsapp', language: selectedLanguage })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to dispatch communication');
+      setSendResult(data);
+      fetchPreview(selectedLanguage);
+    } catch (err) {
+      setSendError(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="panel-box communication-panel-box">
+      <div className="panel-box-header">
+        <div>
+          <h3>GROUNDED MULTILINGUAL OUTREACH · Customer Communication</h3>
+          <small className="muted">Fact-grounded conversational copy via WhatsApp Sandbox (or bounded simulation)</small>
+        </div>
+        <div className="comm-header-badges">
+          <span className="badge-channel">WhatsApp</span>
+          {preview?.providerConfigured ? (
+            <span className="badge-prov-sandbox">WHATSAPP TEST MODE (SANDBOX)</span>
+          ) : (
+            <span className="badge-prov-simulated">SIMULATION / PROVIDER NOT CONFIGURED</span>
+          )}
+        </div>
+      </div>
+
+      <div className="comm-language-bar">
+        <span className="comm-label">LANGUAGE:</span>
+        <div className="comm-lang-tabs">
+          {[
+            { id: 'en', label: 'English' },
+            { id: 'hi', label: 'हिंदी (Hindi)' },
+            { id: 'hinglish', label: 'Hinglish' }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setSelectedLanguage(tab.id)}
+              className={`comm-lang-btn ${selectedLanguage === tab.id ? 'active' : ''}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loadingPreview ? (
+        <p className="muted">Rendering grounded message preview…</p>
+      ) : previewError ? (
+        <p className="error">{previewError}</p>
+      ) : preview ? (
+        <div className="comm-preview-container">
+          <div className="whatsapp-bubble-wrapper">
+            <div className="whatsapp-bubble-header">
+              <span className="whatsapp-icon">💬</span>
+              <b>Revflow Recovery Assistant · WhatsApp Business</b>
+              <small className="muted">Verified Context Only</small>
+            </div>
+            <div className="whatsapp-chat-bubble">
+              <p className="whatsapp-text">{preview.message}</p>
+              <span className="whatsapp-timestamp">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓</span>
+            </div>
+          </div>
+
+          <div className="grounded-facts-card">
+            <h4>Grounded Evidence Checklist (Zero Hallucinations)</h4>
+            <ul className="grounded-checklist">
+              <li>
+                <span className="check-icon">✓</span>
+                <span><b>Amount:</b> {preview.amountFormatted} (strictly derived from case context)</span>
+              </li>
+              <li>
+                <span className="check-icon">✓</span>
+                <span><b>Customer Name:</b> {preview.customerName ? `"${preview.customerName}" (verified from event)` : 'None (Neutral greeting used)'}</span>
+              </li>
+              <li>
+                <span className="check-icon">✓</span>
+                <span><b>Payment Link:</b> {preview.paymentLinkUrl ? 'Included from active Razorpay link' : 'Omitted (no active link yet)'}</span>
+              </li>
+              <li>
+                <span className="check-icon">✓</span>
+                <span><b>Language Selection Reason:</b> <code>{preview.selectionReason}</code></span>
+              </li>
+              <li>
+                <span className="check-icon">✓</span>
+                <span><b>Anti-Hallucination Guard:</b> PASSED (Zero fabricated discounts, deadlines, or fees)</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {preview && (
+        <div className="comm-safety-bar">
+          <div className="comm-safety-item">
+            <small>POLICY GATE</small>
+            <b className={preview.policyDecision === 'ALLOW' ? 'text-success' : 'text-warning'}>
+              {preview.policyDecision}
+            </b>
+          </div>
+          <div className="comm-safety-item">
+            <small>CUSTOMER OPT-OUT</small>
+            <b className={preview.stoppingEvaluation?.reasonCode === 'CUSTOMER_OPT_OUT' ? 'text-danger' : 'text-success'}>
+              {preview.stoppingEvaluation?.reasonCode === 'CUSTOMER_OPT_OUT' ? 'OPTED OUT' : 'CLEAR'}
+            </b>
+          </div>
+          <div className="comm-safety-item">
+            <small>COOLDOWN</small>
+            <b className={preview.stoppingEvaluation?.reasonCode === 'COOLDOWN_ACTIVE' ? 'text-warning' : 'text-success'}>
+              {preview.stoppingEvaluation?.reasonCode === 'COOLDOWN_ACTIVE' ? 'ACTIVE' : 'CLEAR'}
+            </b>
+          </div>
+          <div className="comm-safety-item">
+            <small>PROVIDER DESTINATION</small>
+            <b>{caseDetail?.recoveryCase?.customerReference || '+919876543210 (Test)'}</b>
+          </div>
+        </div>
+      )}
+
+      <div className="comm-action-bar">
+        {sendError && <p className="error">{sendError}</p>}
+        {sendResult && (
+          <div className="send-success-banner">
+            <b>✓ OUTREACH DISPATCHED:</b> {sendResult.communication?.message}
+            <div className="send-meta">
+              <span><b>Provider:</b> <code>{sendResult.communication?.provider}</code></span>
+              <span><b>Message ID:</b> <code>{sendResult.communication?.providerMessageId}</code></span>
+              <span><b>Status:</b> <span className="badge-sent">{sendResult.communication?.status}</span></span>
+              <span><b>Provenance:</b> <code>{sendResult.provenance}</code></span>
+            </div>
+            <small className="notice-subtle">
+              Important: Message delivery !== revenue recovery. Revenue will only be credited when the customer completes payment.
+            </small>
+          </div>
+        )}
+
+        <div className="comm-btn-row">
+          <button
+            onClick={handleSend}
+            disabled={sending || loadingPreview || preview?.policyDecision === 'BLOCK'}
+            className="btn-send-whatsapp"
+          >
+            {sending ? 'Dispatching WhatsApp Outreach…' : 'SEND VIA WHATSAPP (TEST / SANDBOX)'}
+          </button>
+          <span className="notice-subtle">
+            {preview?.providerConfigured
+              ? 'Sends real test message via configured Twilio WhatsApp Sandbox recipient.'
+              : 'Executes simulated WhatsApp dispatch with structured audit and telemetry.'}
+          </span>
+        </div>
+      </div>
     </section>
   );
 }

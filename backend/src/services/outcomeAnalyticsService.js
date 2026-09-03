@@ -389,6 +389,7 @@ async function getOverallOutcomeAnalytics(repository) {
   const agentMetrics = deriveAgentEvaluationMetrics(diagnoses, actions, outcomes);
 
   const executedActionsCount = actions.filter((a) => ['EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status)).length;
+  const communicationIntelligence = computeCommunicationIntelligence(actions, outcomes, audits);
 
   return {
     dataProvenance: 'TEST_MODE_VERIFIED',
@@ -421,7 +422,84 @@ async function getOverallOutcomeAnalytics(repository) {
     strategyPerformance,
     failureAnalytics,
     portfolioFunnel,
+    communicationIntelligence,
     agentEvaluation: agentMetrics
+  };
+}
+
+/**
+ * Computes customer communication & messaging intelligence from verified audit and action records.
+ */
+function computeCommunicationIntelligence(actions = [], outcomes = [], audits = []) {
+  const commActions = actions.filter((a) =>
+    a.actionType === 'CUSTOMER_OUTREACH' ||
+    a.actionType === 'DISPATCH_VERNACULAR_ASSIST' ||
+    Boolean(a.requestMetadata?.communication)
+  );
+
+  const languageDistribution = { en: 0, hi: 0, hinglish: 0, other: 0 };
+  const channelDistribution = { whatsapp: 0 };
+  const statusBreakdown = { queued: 0, sent: 0, delivered: 0, read: 0, failed: 0, unknown: 0 };
+  const provenanceBreakdown = { WHATSAPP_TEST_PROVIDER: 0, SIMULATED: 0 };
+
+  for (const act of commActions) {
+    const comm = act.requestMetadata?.communication || {};
+    const lang = (comm.language || 'en').toLowerCase();
+    if (lang === 'en' || lang === 'hi' || lang === 'hinglish') {
+      languageDistribution[lang]++;
+    } else {
+      languageDistribution.other++;
+    }
+
+    const channel = (comm.channel || 'whatsapp').toLowerCase();
+    channelDistribution[channel] = (channelDistribution[channel] || 0) + 1;
+
+    const status = (comm.status || act.responseMetadata?.lastProviderStatus || 'sent').toLowerCase();
+    if (statusBreakdown[status] !== undefined) {
+      statusBreakdown[status]++;
+    } else {
+      statusBreakdown.unknown++;
+    }
+
+    const prov = comm.provenance || (act.provider === 'twilio_sandbox' ? 'WHATSAPP_TEST_PROVIDER' : 'SIMULATED');
+    if (provenanceBreakdown[prov] !== undefined) {
+      provenanceBreakdown[prov]++;
+    } else {
+      provenanceBreakdown.SIMULATED++;
+    }
+  }
+
+  let optOutSuppressedCount = 0;
+  let cooldownSuppressedCount = 0;
+  for (const aud of audits) {
+    if (aud.metadata?.reasonCode === 'CUSTOMER_OPT_OUT' || aud.message?.includes('opted out')) {
+      optOutSuppressedCount++;
+    }
+    if (aud.metadata?.reasonCode === 'COOLDOWN_ACTIVE' || aud.message?.includes('cooldown')) {
+      cooldownSuppressedCount++;
+    }
+  }
+
+  const verifiedCaseIds = new Set(outcomes.filter((o) => o.verified).map((o) => o.recoveryCaseId));
+  const commCaseIds = new Set(commActions.map((a) => a.recoveryCaseId));
+  let eventualVerifiedRecoveries = 0;
+  for (const caseId of commCaseIds) {
+    if (verifiedCaseIds.has(caseId)) {
+      eventualVerifiedRecoveries++;
+    }
+  }
+
+  return {
+    totalAttempts: commActions.length,
+    dispatchedCount: commActions.filter((a) => ['EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status)).length,
+    languageDistribution,
+    channelDistribution,
+    statusBreakdown,
+    provenanceBreakdown,
+    optOutSuppressedCount,
+    cooldownSuppressedCount,
+    eventualVerifiedRecoveries,
+    notice: 'Communication delivery signals are strictly separated from financial payment verification.'
   };
 }
 
@@ -431,6 +509,7 @@ module.exports = {
   computeRecoveryVelocity,
   computeFailureAnalytics,
   computePortfolioFunnel,
+  computeCommunicationIntelligence,
   deriveAgentEvaluationMetrics,
   formatCurrency,
   formatDuration

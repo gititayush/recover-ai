@@ -1,10 +1,12 @@
-function createCaseController(repository, diagnosisService, razorpayClient) {
+function createCaseController(repository, diagnosisService, razorpayClient, whatsappProvider) {
   const { createDiagnosisController } = require('./diagnosisController');
   const { createPolicyController } = require('./policyController');
   const { createEscalationController } = require('./escalationController');
+  const { createCommunicationController } = require('./communicationController');
   const diagnosisController = createDiagnosisController(repository, diagnosisService);
   const policyController = createPolicyController(repository, diagnosisService, razorpayClient);
   const escalationController = createEscalationController(repository, { diagnosisService, razorpayClient });
+  const communicationController = createCommunicationController(repository, whatsappProvider);
   return {
     list: async (request, response, next) => {
       try { response.json({ cases: await repository.listCases() }); } catch (error) { next(error); }
@@ -37,7 +39,9 @@ function createCaseController(repository, diagnosisService, razorpayClient) {
     listActions: policyController.listActions,
     approveEscalation: escalationController.approve,
     rejectEscalation: escalationController.reject,
-    listEscalations: escalationController.listPending
+    listEscalations: escalationController.listPending,
+    previewCommunication: communicationController.preview,
+    sendCommunication: communicationController.send
   };
 }
 

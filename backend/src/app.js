@@ -7,18 +7,22 @@ const { environment } = require('./config/env');
 const { createEventRouter } = require('./routes/events');
 const { createCaseRouter } = require('./routes/cases');
 const { createRazorpayWebhookRouter } = require('./routes/razorpayWebhooks');
+const { createWhatsAppWebhookRouter } = require('./routes/whatsappWebhooks');
 const { createBatchRouter } = require('./routes/batch');
 const { createAnalyticsRouter } = require('./routes/analytics');
 const { createDiagnosisService } = require('./ai/diagnosisService');
 const { createRazorpayClient } = require('./services/razorpayClient');
+const { createWhatsAppProvider } = require('./services/providers/whatsappProvider');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
-function createApp(repository, { diagnosisService = createDiagnosisService(), razorpayClient = createRazorpayClient() } = {}) {
+function createApp(repository, { diagnosisService = createDiagnosisService(), razorpayClient = createRazorpayClient(), whatsappProvider = createWhatsAppProvider() } = {}) {
   const app = express();
   const corsOptions = environment.FRONTEND_ORIGIN ? { origin: environment.FRONTEND_ORIGIN } : undefined;
   app.use(cors(corsOptions));
   app.use('/api/webhooks/razorpay', express.raw({ type: 'application/json', limit: '100kb' }), createRazorpayWebhookRouter(repository));
   app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '100kb' }));
+  app.use('/api/webhooks/whatsapp', createWhatsAppWebhookRouter(repository, whatsappProvider));
   app.use(morgan('tiny'));
 
   app.get(['/health', '/api/health'], (request, response) => response.json({ status: 'ok' }));
@@ -42,7 +46,7 @@ function createApp(repository, { diagnosisService = createDiagnosisService(), ra
     return response.status(404).json({ error: 'EVALUATION_NOT_FOUND', message: 'Evaluation summary not generated yet. Run pnpm evaluate.' });
   });
   app.use('/api/events', createEventRouter(repository));
-  app.use('/api/cases', createCaseRouter(repository, diagnosisService, razorpayClient));
+  app.use('/api/cases', createCaseRouter(repository, diagnosisService, razorpayClient, whatsappProvider));
   app.use('/api/batch', createBatchRouter());
   app.use('/api/recovery/analytics', createAnalyticsRouter(repository));
 

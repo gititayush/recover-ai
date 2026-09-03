@@ -34,7 +34,7 @@ const paymentDegradationPlaybook = {
   },
 
   getCandidateActions(context) {
-    return ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+    return ['CREATE_PAYMENT_LINK', 'CUSTOMER_OUTREACH', 'DISPATCH_VERNACULAR_ASSIST', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   },
 
   evaluateCustomPolicy(caseDetail, candidateAction, now) {

@@ -24,7 +24,14 @@ const environmentSchema = z.object({
   AUTONOMY_WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   AUTONOMY_WORKER_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
   AUTONOMY_WORKER_MAX_RETRIES: z.coerce.number().int().positive().default(3),
-  AUTONOMY_WORKER_BASE_BACKOFF_SECONDS: z.coerce.number().int().positive().default(30)
+  AUTONOMY_WORKER_BASE_BACKOFF_SECONDS: z.coerce.number().int().positive().default(30),
+  COMMUNICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(2),
+  COMMUNICATION_COOLDOWN_MINUTES: z.coerce.number().int().nonnegative().default(30),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_WHATSAPP_FROM: z.string().default('whatsapp:+14155238886'),
+  WHATSAPP_PROVIDER_MODE: z.enum(['SANDBOX', 'TEST', 'SIMULATED', 'DISABLED', 'UNCONFIGURED']).default('SANDBOX'),
+  TWILIO_STATUS_CALLBACK_URL: z.string().optional()
 }).superRefine((data, ctx) => {
   if (data.NODE_ENV === 'production') {
     if (!data.RAZORPAY_KEY_ID || data.RAZORPAY_KEY_ID.trim() === '') {

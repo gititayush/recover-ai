@@ -144,8 +144,11 @@ function evaluateStoppingCriteria({
 
   const isOptedOut = recoveryCase.customerOptOut === true ||
     optOutText.includes('opt-out') ||
+    optOutText.includes('opt_out') ||
     optOutText.includes('optout') ||
     optOutText.includes('unsubscribed') ||
+    optOutText.includes('do_not_contact') ||
+    optOutText.includes('do not contact') ||
     optOutText.includes('cancelled by customer');
 
   if (isOptedOut) {

@@ -14,6 +14,7 @@
 
 const { evaluatePolicy } = require('../policy/policyEngine');
 const { getStrategy, EXECUTION_MODES } = require('../strategies/strategyRegistry');
+const { buildCommunicationPayload } = require('../services/communicationService');
 
 class SimulatedActionExecutorError extends Error {
   constructor(message, statusCode = 422, details = null) {
@@ -117,6 +118,33 @@ async function executeSimulatedAction(repository, {
     ? new Date(now().getTime() + retryDelayHours * 3600 * 1000).toISOString()
     : null;
 
+  let communication = null;
+  if (targetAction === 'CUSTOMER_OUTREACH' || targetAction === 'DISPATCH_VERNACULAR_ASSIST') {
+    try {
+      const commPayload = buildCommunicationPayload({
+        recoveryCase,
+        diagnosis,
+        customerName: recoveryCase.customerName || null,
+        languagePreference: targetAction === 'DISPATCH_VERNACULAR_ASSIST' ? 'hinglish' : 'en'
+      });
+      communication = {
+        channel: 'whatsapp',
+        language: commPayload.language,
+        selectionReason: commPayload.selectionReason,
+        message: commPayload.message,
+        provider: 'simulated',
+        providerMessageId: `sim_act_${recoveryCase.id}_${attemptNumber}`,
+        status: 'SENT',
+        factsUsed: commPayload.factsUsed,
+        groundingValid: true,
+        isSimulated: true,
+        provenance: 'SIMULATED'
+      };
+    } catch {
+      // Fallback cleanly if case amount or grounding context is unavailable
+    }
+  }
+
   const requestMetadata = {
     strategy: targetAction,
     strategyName: strategy.name,
@@ -128,7 +156,9 @@ async function executeSimulatedAction(repository, {
           ? 'Issue structured corporate accounts receivable reminder referencing invoice payment terms'
           : (targetAction === 'CHECKOUT_RECOVERY'
               ? 'Preserve customer cart items and generate personalized recovery session link'
-              : (targetAction === 'CUSTOMER_OUTREACH' ? 'Dispatch customer reminder notification across verified channels' : 'Execute simulated advisory workflow'))),
+              : (targetAction === 'DISPATCH_VERNACULAR_ASSIST'
+                  ? 'Dispatch localized multilingual guidance assist copy via verified messaging'
+                  : (targetAction === 'CUSTOMER_OUTREACH' ? 'Dispatch customer reminder notification across verified channels' : 'Execute simulated advisory workflow')))),
     retrySchedule: targetAction === 'SCHEDULE_RETRY_WINDOW' ? {
       attemptNumber,
       nextRetryAt: nextRetryTimestamp,
@@ -141,7 +171,8 @@ async function executeSimulatedAction(repository, {
       currency: recoveryCase.currency,
       customerReference: recoveryCase.customerReference,
       invoiceId: targetAction === 'INVOICE_REMINDER' ? recoveryCase.paymentId : undefined
-    }
+    },
+    ...(communication ? { communication } : {})
   };
 
   const responseMetadata = {

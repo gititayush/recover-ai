@@ -1,9 +1,9 @@
 const express = require('express');
 const { createCaseController } = require('../controllers/caseController');
 
-function createCaseRouter(repository, diagnosisService, razorpayClient) {
+function createCaseRouter(repository, diagnosisService, razorpayClient, whatsappProvider) {
   const router = express.Router();
-  const controller = createCaseController(repository, diagnosisService, razorpayClient);
+  const controller = createCaseController(repository, diagnosisService, razorpayClient, whatsappProvider);
   router.get('/metrics', controller.getMetrics);
   router.get('/escalations', controller.listEscalations);
   router.get('/', controller.list);
@@ -15,6 +15,8 @@ function createCaseRouter(repository, diagnosisService, razorpayClient) {
   router.post('/:id/recovery-actions', controller.executeAction);
   router.get('/:id/recovery-actions', controller.listActions);
   router.get('/:id/recovery-outcome', controller.getRecoveryOutcome);
+  router.post('/:id/communication/preview', controller.previewCommunication);
+  router.post('/:id/communication/send', controller.sendCommunication);
   router.get('/:id', controller.getById);
   return router;
 }
