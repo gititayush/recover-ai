@@ -374,6 +374,394 @@ function buildCommunicationPayload({
   };
 }
 
+const { evaluateStoppingCriteria } = require('../policy/stoppingEngine');
+const { evaluatePolicy } = require('../policy/policyEngine');
+const { environment } = require('../config/env');
+
+/**
+ * Headless communication dispatcher for both REST controller and autonomous recovery worker.
+ *
+ * Implements strict stopping/policy revalidation, frequency capping, parameter grounding,
+ * idempotent action persistence, provider execution (or bounded simulation), and audit logging.
+ */
+async function dispatchCommunicationAction({
+  repository,
+  whatsappProvider,
+  recoveryCaseId,
+  requestedLanguage = null,
+  recipientPhone = null,
+  channel = 'whatsapp',
+  isAutonomous = false,
+  now = () => new Date()
+}) {
+  if (!repository) {
+    throw new Error('Repository is required for communication dispatch.');
+  }
+
+  const detail = await repository.getCaseDetail(recoveryCaseId);
+  if (!detail) {
+    return { error: 'CASE_NOT_FOUND', message: 'Recovery case not found.', statusCode: 404 };
+  }
+
+  const targetChannel = (channel || 'whatsapp').toLowerCase();
+  if (targetChannel !== 'whatsapp') {
+    return {
+      error: 'UNSUPPORTED_CHANNEL',
+      message: `Unsupported communication channel '${targetChannel}'. Only 'whatsapp' is supported.`,
+      statusCode: 400
+    };
+  }
+
+  if (requestedLanguage && !SUPPORTED_LANGUAGES.includes(requestedLanguage.toLowerCase())) {
+    return {
+      error: 'UNSUPPORTED_LANGUAGE',
+      message: `Unsupported language '${requestedLanguage}'. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}.`,
+      statusCode: 400
+    };
+  }
+
+  const existingActions = await repository.findActionsByCaseId(detail.recoveryCase.id);
+  const diagnosis = await repository.findDiagnosisByCaseId(detail.recoveryCase.id);
+
+  const commActions = existingActions.filter(
+    (a) => a.actionType === 'CUSTOMER_OUTREACH' || a.actionType === 'DISPATCH_VERNACULAR_ASSIST'
+  );
+
+  // 1. TOCTOU Revalidation: Authoritative Stopping Criteria Check
+  const stopping = evaluateStoppingCriteria({
+    recoveryCase: detail.recoveryCase,
+    diagnosis,
+    candidateAction: 'CUSTOMER_OUTREACH',
+    events: detail.events,
+    existingActions: commActions,
+    cooldownMinutes: 0,
+    now
+  });
+
+  if (stopping.stopped && stopping.actionDisposition === 'HARD_STOP') {
+    return {
+      error: 'EXECUTION_STOPPED',
+      message: stopping.humanReadableReason,
+      reasonCode: stopping.reasonCode,
+      actionDisposition: stopping.actionDisposition,
+      statusCode: 422
+    };
+  }
+
+  // 2. Authoritative Policy Engine Check
+  const policyDecision = evaluatePolicy({
+    recoveryCase: detail.recoveryCase,
+    diagnosis,
+    candidateAction: 'CUSTOMER_OUTREACH',
+    events: detail.events,
+    existingActions: commActions,
+    cooldownMinutes: 0,
+    allowSimulated: true,
+    now
+  });
+
+  if (policyDecision.decision === 'BLOCK') {
+    return {
+      error: 'POLICY_BLOCKED',
+      message: 'Customer outreach is blocked by deterministic safety guardrails.',
+      reasons: policyDecision.reasons,
+      statusCode: 422
+    };
+  }
+
+  if (policyDecision.decision === 'REVIEW' && detail.recoveryCase.escalationStatus !== 'APPROVED') {
+    return {
+      error: 'REVIEW_REQUIRED',
+      message: 'Customer outreach requires human operations approval before dispatch.',
+      reasons: policyDecision.reasons,
+      statusCode: 422
+    };
+  }
+
+  // 3. Frequency Capping & Outreach Attempt Limit
+  const maxOutreachAttempts = environment.COMMUNICATION_MAX_ATTEMPTS || 2;
+  const cooldownMinutes = environment.COMMUNICATION_COOLDOWN_MINUTES || 30;
+
+  // For autonomous execution, check if an executed outreach already exists to prevent duplicates on lease re-drive
+  if (isAutonomous) {
+    const existingSuccessfulOutreach = commActions.find((a) => ['EXECUTED', 'OUTCOME_CONFIRMED', 'PENDING'].includes(a.status));
+    if (existingSuccessfulOutreach) {
+      return {
+        duplicate: true,
+        action: existingSuccessfulOutreach,
+        message: 'Active or executed outreach action already exists for this case.',
+        statusCode: 200
+      };
+    }
+  }
+
+  if (commActions.length >= maxOutreachAttempts) {
+    return {
+      error: 'MAX_OUTREACH_EXCEEDED',
+      message: `Outreach attempt limit (${maxOutreachAttempts}) reached for this recovery case.`,
+      statusCode: 422
+    };
+  }
+
+  const lastCommAction = commActions.at(-1);
+  if (lastCommAction && lastCommAction.createdAt) {
+    const elapsedMinutes = Math.floor((now().getTime() - new Date(lastCommAction.createdAt).getTime()) / 60000);
+    if (elapsedMinutes < cooldownMinutes) {
+      return {
+        error: 'COOLDOWN_ACTIVE',
+        message: `Outreach cooldown is active (${elapsedMinutes}/${cooldownMinutes} min elapsed). Please wait before contacting again.`,
+        statusCode: 422
+      };
+    }
+  }
+
+  // 4. Derive Verified Parameters
+  const paymentLinkAction = existingActions.find(
+    (a) => a.actionType === 'CREATE_PAYMENT_LINK' && a.paymentLinkUrl && ['EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status)
+  );
+
+  const lastEvent = detail.events?.at(-1);
+  const customerName = lastEvent?.rawPayload?.customerName
+    || lastEvent?.rawPayload?.customer?.name
+    || detail.recoveryCase.customerName
+    || null;
+
+  const customerLanguage = requestedLanguage
+    || lastEvent?.rawPayload?.customerLanguagePreference
+    || lastEvent?.rawPayload?.customerPreference
+    || lastEvent?.rawPayload?.language
+    || detail.recoveryCase.customerPreference
+    || null;
+
+  const customerLocale = lastEvent?.rawPayload?.locale
+    || lastEvent?.rawPayload?.customerLocale
+    || detail.recoveryCase.locale
+    || null;
+
+  // 5. Render Message Copy & Validate Grounding
+  const payload = buildCommunicationPayload({
+    recoveryCase: detail.recoveryCase,
+    diagnosis,
+    action: paymentLinkAction,
+    customerName,
+    languagePreference: customerLanguage,
+    locale: customerLocale
+  });
+
+  // 6. Resolve Destination Phone Number
+  const targetPhone = recipientPhone
+    || lastEvent?.rawPayload?.customerPhone
+    || detail.recoveryCase.customerReference
+    || '+919876543210';
+
+  // 7. Dispatch via Provider or Bounded Simulation
+  const isProviderReady = whatsappProvider
+    && typeof whatsappProvider.isConfigured === 'function'
+    && whatsappProvider.isConfigured()
+    && (whatsappProvider.getProviderMode() === 'SANDBOX' || whatsappProvider.getProviderMode() === 'TEST');
+
+  const attemptNumber = commActions.length + 1;
+  let createdAction;
+
+  if (isProviderReady) {
+    try {
+      // Live Dispatch to Twilio WhatsApp Sandbox
+      const sendResult = await whatsappProvider.sendMessage({
+        to: targetPhone,
+        message: payload.message
+      });
+
+      createdAction = await repository.createAction({
+        recoveryCaseId: detail.recoveryCase.id,
+        actionType: 'CUSTOMER_OUTREACH',
+        status: 'EXECUTED',
+        policyDecision: 'ALLOW',
+        policyVersion: policyDecision.policyVersion,
+        idempotencyKey: `comm_${detail.recoveryCase.id}_whatsapp_v${attemptNumber}`,
+        provider: 'twilio_sandbox',
+        providerActionId: sendResult.providerMessageId,
+        amount: detail.recoveryCase.amount,
+        currency: detail.recoveryCase.currency,
+        requestMetadata: {
+          communication: {
+            channel: 'whatsapp',
+            language: payload.language,
+            selectionReason: payload.selectionReason,
+            message: payload.message,
+            provider: 'twilio_sandbox',
+            providerMessageId: sendResult.providerMessageId,
+            status: sendResult.status,
+            recipient: targetPhone,
+            factsUsed: payload.factsUsed,
+            groundingValid: true,
+            provenance: 'WHATSAPP_TEST_PROVIDER',
+            isAutonomous
+          }
+        },
+        responseMetadata: {
+          provider: 'twilio_sandbox',
+          providerMessageId: sendResult.providerMessageId,
+          initialStatus: sendResult.status,
+          externalApiCalled: true,
+          recoveredAmount: 0,
+          notice: 'Dispatched via Twilio WhatsApp Sandbox. Message delivery !== revenue recovery.'
+        }
+      });
+
+      // Record Audit Log
+      await repository.addAudit(
+        detail.recoveryCase.id,
+        'COMMUNICATION_DISPATCHED',
+        `Dispatched customer outreach via Twilio WhatsApp Sandbox (${payload.language}): Message ID ${sendResult.providerMessageId}`,
+        {
+          actionId: createdAction.id,
+          channel: 'whatsapp',
+          language: payload.language,
+          selectionReason: payload.selectionReason,
+          provider: 'twilio_sandbox',
+          providerMessageId: sendResult.providerMessageId,
+          status: sendResult.status,
+          recipient: targetPhone,
+          provenance: 'WHATSAPP_TEST_PROVIDER',
+          isAutonomous
+        }
+      );
+
+      return {
+        success: true,
+        action: createdAction,
+        payload,
+        providerResult: sendResult,
+        provenance: 'WHATSAPP_TEST_PROVIDER',
+        statusCode: 201
+      };
+    } catch (providerError) {
+      // Record FAILED action with error details
+      const failedAction = await repository.createAction({
+        recoveryCaseId: detail.recoveryCase.id,
+        actionType: 'CUSTOMER_OUTREACH',
+        status: 'FAILED',
+        policyDecision: 'ALLOW',
+        policyVersion: policyDecision.policyVersion,
+        idempotencyKey: `comm_${detail.recoveryCase.id}_whatsapp_v${attemptNumber}_failed`,
+        provider: 'twilio_sandbox',
+        providerActionId: null,
+        amount: detail.recoveryCase.amount,
+        currency: detail.recoveryCase.currency,
+        requestMetadata: {
+          communication: {
+            channel: 'whatsapp',
+            language: payload.language,
+            selectionReason: payload.selectionReason,
+            message: payload.message,
+            provider: 'twilio_sandbox',
+            recipient: targetPhone,
+            factsUsed: payload.factsUsed,
+            groundingValid: true,
+            provenance: 'WHATSAPP_TEST_PROVIDER',
+            isAutonomous
+          }
+        },
+        responseMetadata: {
+          provider: 'twilio_sandbox',
+          externalApiCalled: true,
+          error: providerError.message,
+          errorCode: providerError.details?.errorCode || providerError.statusCode || 500,
+          details: providerError.details || null,
+          recoveredAmount: 0,
+          notice: 'Twilio WhatsApp Sandbox dispatch failed.'
+        }
+      });
+
+      await repository.addAudit(
+        detail.recoveryCase.id,
+        'COMMUNICATION_FAILED',
+        `WhatsApp communication failed: ${providerError.message}`,
+        {
+          actionId: failedAction.id,
+          error: providerError.message,
+          errorCode: providerError.details?.errorCode || null,
+          recipient: targetPhone,
+          provider: 'twilio_sandbox',
+          isAutonomous
+        }
+      );
+
+      return {
+        success: false,
+        action: failedAction,
+        error: 'PROVIDER_ERROR',
+        message: providerError.message,
+        statusCode: providerError.statusCode || 502
+      };
+    }
+  } else {
+    // Bounded Simulation
+    const simId = `sim_msg_${detail.recoveryCase.id}_v${attemptNumber}`;
+    createdAction = await repository.createAction({
+      recoveryCaseId: detail.recoveryCase.id,
+      actionType: 'CUSTOMER_OUTREACH',
+      status: 'EXECUTED',
+      policyDecision: 'ALLOW',
+      policyVersion: policyDecision.policyVersion,
+      idempotencyKey: `comm_${detail.recoveryCase.id}_simulated_v${attemptNumber}`,
+      provider: 'simulated',
+      providerActionId: simId,
+      amount: detail.recoveryCase.amount,
+      currency: detail.recoveryCase.currency,
+      requestMetadata: {
+        communication: {
+          channel: 'whatsapp',
+          language: payload.language,
+          selectionReason: payload.selectionReason,
+          message: payload.message,
+          provider: 'simulated',
+          providerMessageId: simId,
+          status: 'SENT',
+          recipient: targetPhone,
+          factsUsed: payload.factsUsed,
+          groundingValid: true,
+          provenance: 'SIMULATED',
+          isAutonomous
+        }
+      },
+      responseMetadata: {
+        provider: 'simulated',
+        isSimulated: true,
+        externalApiCalled: false,
+        recoveredAmount: 0,
+        notice: 'Simulated WhatsApp outreach executed. No external messaging provider was called.'
+      }
+    });
+
+    await repository.addAudit(
+      detail.recoveryCase.id,
+      'COMMUNICATION_DISPATCHED',
+      `Executed simulated customer outreach (${payload.language}): ${simId}`,
+      {
+        actionId: createdAction.id,
+        channel: 'whatsapp',
+        language: payload.language,
+        selectionReason: payload.selectionReason,
+        provider: 'simulated',
+        providerActionId: simId,
+        status: 'SENT',
+        recipient: targetPhone,
+        provenance: 'SIMULATED',
+        isAutonomous
+      }
+    );
+
+    return {
+      success: true,
+      action: createdAction,
+      payload,
+      provenance: 'SIMULATED',
+      statusCode: 201
+    };
+  }
+}
+
 module.exports = {
   SUPPORTED_LANGUAGES,
   LANGUAGE_SELECTION_REASONS,
@@ -383,5 +771,6 @@ module.exports = {
   formatCurrencyINR,
   renderMessage,
   validateMessageGrounding,
-  buildCommunicationPayload
+  buildCommunicationPayload,
+  dispatchCommunicationAction
 };

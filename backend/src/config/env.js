@@ -27,6 +27,7 @@ const environmentSchema = z.object({
   AUTONOMY_WORKER_BASE_BACKOFF_SECONDS: z.coerce.number().int().positive().default(30),
   COMMUNICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(2),
   COMMUNICATION_COOLDOWN_MINUTES: z.coerce.number().int().nonnegative().default(30),
+  AUTONOMOUS_WHATSAPP_ENABLED: z.coerce.boolean().default(false),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_WHATSAPP_FROM: z.string().default('whatsapp:+14155238886'),

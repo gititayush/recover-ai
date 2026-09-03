@@ -3,6 +3,8 @@ const { environment } = require('../config/env');
 const logger = require('../config/logger');
 const { createDiagnosisService } = require('../ai/diagnosisService');
 const { createRazorpayClient } = require('../services/razorpayClient');
+const { createWhatsAppProvider } = require('../services/providers/whatsappProvider');
+const { dispatchCommunicationAction } = require('../services/communicationService');
 const { evaluatePolicy } = require('../policy/policyEngine');
 const { executePaymentLink, RecoveryExecutorError } = require('../actions/paymentLinkExecutor');
 
@@ -10,6 +12,7 @@ function createRecoveryWorker({
   repository,
   diagnosisService = createDiagnosisService(),
   razorpayClient = createRazorpayClient(),
+  whatsappProvider = createWhatsAppProvider(),
   pollIntervalMs = environment.AUTONOMY_WORKER_POLL_INTERVAL_MS,
   leaseSeconds = environment.AUTONOMY_WORKER_LEASE_SECONDS,
   maxRetries = environment.AUTONOMY_WORKER_MAX_RETRIES,
@@ -278,6 +281,37 @@ function createRecoveryWorker({
       }
 
       if (executionResult.executed) {
+        let outreachResult = null;
+        if (environment.AUTONOMOUS_WHATSAPP_ENABLED) {
+          try {
+            outreachResult = await dispatchCommunicationAction({
+              repository,
+              whatsappProvider,
+              recoveryCaseId: freshCase.id,
+              isAutonomous: true,
+              now
+            });
+            if (outreachResult.duplicate) {
+              logger.info('Autonomous outreach skipped: duplicate or active outreach already exists', {
+                caseId: freshCase.id
+              });
+            } else if (!outreachResult.success && outreachResult.error) {
+              logger.warn('Autonomous WhatsApp outreach dispatch encountered failure (financial action preserved)', {
+                caseId: freshCase.id,
+                error: outreachResult.message
+              });
+            }
+          } catch (commErr) {
+            logger.warn('Unexpected error in autonomous WhatsApp outreach bridge; preserving financial action', {
+              caseId: freshCase.id,
+              error: commErr.message
+            });
+            await repository.addAudit(claimedCase.id, 'COMMUNICATION_FAILED', `Autonomous communication bridge error: ${commErr.message}`, {
+              error: commErr.message
+            });
+          }
+        }
+
         await repository.releaseJob(claimedCase.id, leaseToken, {
           autonomyStatus: 'COMPLETED'
         });
@@ -285,9 +319,22 @@ function createRecoveryWorker({
           actionId: executionResult.action?.id,
           providerActionId: executionResult.action?.providerActionId,
           paymentLinkUrl: executionResult.action?.paymentLinkUrl,
-          adopted: executionResult.adopted || false
+          adopted: executionResult.adopted || false,
+          autonomousOutreach: outreachResult ? {
+            attempted: true,
+            success: outreachResult.success || false,
+            duplicate: outreachResult.duplicate || false,
+            actionId: outreachResult.action?.id || null,
+            status: outreachResult.action?.status || null,
+            error: outreachResult.error || null
+          } : { attempted: false }
         });
-        return { processed: true, status: 'COMPLETED', action: executionResult.action };
+        return {
+          processed: true,
+          status: 'COMPLETED',
+          action: executionResult.action,
+          outreachAction: outreachResult?.action || null
+        };
       }
 
       await repository.releaseJob(claimedCase.id, leaseToken, {
