@@ -5,35 +5,51 @@ const { getPool, closePool } = require('./db/pool');
 const { PostgresRecoveryRepository } = require('./models/postgresRecoveryRepository');
 const { createRecoveryWorker } = require('./worker/recoveryWorker');
 
-const repository = new PostgresRecoveryRepository(getPool());
-const app = createApp(repository);
+const { migrate } = require('./db/migrate');
 
-let worker = null;
-if (environment.AUTONOMOUS_RECOVERY_ENABLED) {
-  worker = createRecoveryWorker({ repository });
-  worker.start();
-}
-
-const server = app.listen(environment.PORT, '0.0.0.0', () => {
-  logger.info('Revflow backend listening', {
-    host: '0.0.0.0',
-    port: environment.PORT,
-    autonomousRecovery: environment.AUTONOMOUS_RECOVERY_ENABLED
-  });
-});
-
-function gracefulShutdown(signal) {
-  logger.info(`Received ${signal}. Shutting down gracefully...`);
-  if (worker) {
-    worker.stop();
+async function startServer() {
+  try {
+    await migrate(getPool());
+    logger.info('Database schema migration confirmed on startup');
+  } catch (err) {
+    logger.error('Startup schema migration warning:', { error: err.message });
   }
-  server.close(() => {
-    closePool().finally(() => {
-      logger.info('Closed database connection pool. Exiting.');
-      process.exit(0);
+
+  const repository = new PostgresRecoveryRepository(getPool());
+  const app = createApp(repository);
+
+  let worker = null;
+  if (environment.AUTONOMOUS_RECOVERY_ENABLED) {
+    worker = createRecoveryWorker({ repository });
+    worker.start();
+  }
+
+  const server = app.listen(environment.PORT, '0.0.0.0', () => {
+    logger.info('Revflow backend listening', {
+      host: '0.0.0.0',
+      port: environment.PORT,
+      autonomousRecovery: environment.AUTONOMOUS_RECOVERY_ENABLED
     });
   });
+
+  function gracefulShutdown(signal) {
+    logger.info(`Received ${signal}. Shutting down gracefully...`);
+    if (worker) {
+      worker.stop();
+    }
+    server.close(() => {
+      closePool().finally(() => {
+        logger.info('Closed database connection pool. Exiting.');
+        process.exit(0);
+      });
+    });
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+startServer().catch((error) => {
+  logger.error('Fatal server startup error', { error: error.message });
+  process.exit(1);
+});
