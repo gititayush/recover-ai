@@ -12,7 +12,6 @@
 
 🌐 **Live Demonstration Deployment**: [https://revflow.onrender.com](https://revflow.onrender.com)
 📦 **Repository**: [https://github.com/gititayush/recover-ai](https://github.com/gititayush/recover-ai)
-📌 **Production Commit**: `5020348ec702f81f9a665c6cb575f0089d2f111d`
 📖 **Technical Architecture Guide**: [docs/architecture.md](docs/architecture.md)
 
 ---
