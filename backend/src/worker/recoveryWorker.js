@@ -88,7 +88,7 @@ function createRecoveryWorker({
       const events = caseDetail.events || [];
       const existingActions = caseDetail.actions || [];
 
-      // 1. Authoritative Pre-Check: If case is already terminal / settled externally
+      // 1. Authoritative Pre-Check: If case is already terminal / settled externally or rejected
       const hasTerminalEvent = events.some((e) => ['payment.captured', 'order.paid'].includes(e.eventType));
       if (['RESOLVED', 'SUPPRESSED'].includes(freshCase.riskStatus) || hasTerminalEvent) {
         await repository.releaseJob(claimedCase.id, leaseToken, {
@@ -99,6 +99,14 @@ function createRecoveryWorker({
           outcome: freshCase.outcome
         });
         return { processed: true, status: 'COMPLETED', settled: true };
+      }
+
+      if (freshCase.escalationStatus === 'REJECTED') {
+        await repository.releaseJob(claimedCase.id, leaseToken, {
+          autonomyStatus: 'BLOCKED',
+          lastAutonomyError: 'Case recovery was rejected by human operations'
+        });
+        return { processed: true, status: 'BLOCKED', rejected: true };
       }
 
       // 2. AI Diagnosis Step (Fail-Closed)
@@ -181,6 +189,12 @@ function createRecoveryWorker({
 
       // 4. Server-Authoritative Policy Evaluation
       const isTestMode = razorpayClient.isTestMode !== undefined ? razorpayClient.isTestMode : false;
+      const humanApproval = freshCase.escalationStatus === 'APPROVED' ? {
+        approvedBy: freshCase.approvedBy,
+        approvedAt: freshCase.approvedAt,
+        notes: freshCase.reviewNotes
+      } : null;
+
       const policyDecision = evaluatePolicy({
         recoveryCase: freshCase,
         diagnosis,
@@ -189,6 +203,7 @@ function createRecoveryWorker({
         existingActions,
         isTestMode,
         candidateReference: `REV-C${freshCase.id}-PLINK`,
+        humanApproval,
         now
       });
 
@@ -203,11 +218,20 @@ function createRecoveryWorker({
           ? policyDecision.stopping.supportingFacts.cooldownExpiresAt
           : null;
 
-        await repository.releaseJob(claimedCase.id, leaseToken, {
+        const releaseFields = {
           autonomyStatus: nextStatus,
           nextRetryAt,
           lastAutonomyError: reasonText
-        });
+        };
+
+        // If transitioning to REVIEW_REQUIRED and case has no escalation yet, transition to PENDING_APPROVAL
+        if (policyDecision.decision === 'REVIEW' && !isWait && freshCase.escalationStatus === 'NONE') {
+          releaseFields.escalationStatus = 'PENDING_APPROVAL';
+          releaseFields.escalatedAt = now().toISOString();
+          releaseFields.escalatedReason = reasonText;
+        }
+
+        await repository.releaseJob(claimedCase.id, leaseToken, releaseFields);
 
         // Deduplicate audit: avoid recording identical error if case was already stopped with the same reason
         const isDuplicateAudit = claimedCase.lastAutonomyError === reasonText;
@@ -218,6 +242,13 @@ function createRecoveryWorker({
             reasons: policyDecision.reasons,
             stopping: policyDecision.stopping || null
           });
+
+          if (releaseFields.escalationStatus === 'PENDING_APPROVAL') {
+            await repository.addAudit(claimedCase.id, 'ESCALATION_TRIGGERED', `Case escalated to PENDING_APPROVAL. Awaiting human operations review: ${reasonText}`, {
+              reasons: policyDecision.reasons,
+              stopping: policyDecision.stopping || null
+            });
+          }
         }
 
         return {

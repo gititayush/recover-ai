@@ -60,12 +60,27 @@ class InMemoryRecoveryRepository {
       lockedBy: null,
       nextRetryAt: null,
       lastAutonomyError: null,
+      escalationStatus: data.escalationStatus || 'NONE',
+      escalatedAt: data.escalatedAt || null,
+      escalatedReason: data.escalatedReason || null,
+      approvedBy: data.approvedBy || null,
+      approvedAt: data.approvedAt || null,
+      rejectedBy: data.rejectedBy || null,
+      rejectedAt: data.rejectedAt || null,
+      reviewNotes: data.reviewNotes || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...data
     };
     this.cases.push(recoveryCase);
     return { ...recoveryCase };
+  }
+
+  async listPendingEscalations() {
+    return this.cases
+      .filter((c) => c.escalationStatus === 'PENDING_APPROVAL' || c.autonomyStatus === 'REVIEW_REQUIRED')
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map((c) => ({ ...c }));
   }
 
   async updateCase(id, changes) {
@@ -122,6 +137,9 @@ class InMemoryRecoveryRepository {
     candidate.lockedBy = null;
     if (updates.nextRetryAt !== undefined) candidate.nextRetryAt = updates.nextRetryAt;
     if (updates.lastAutonomyError !== undefined) candidate.lastAutonomyError = updates.lastAutonomyError;
+    if (updates.escalationStatus !== undefined) candidate.escalationStatus = updates.escalationStatus;
+    if (updates.escalatedAt !== undefined) candidate.escalatedAt = updates.escalatedAt;
+    if (updates.escalatedReason !== undefined) candidate.escalatedReason = updates.escalatedReason;
     candidate.updatedAt = new Date().toISOString();
     return { ...candidate };
   }

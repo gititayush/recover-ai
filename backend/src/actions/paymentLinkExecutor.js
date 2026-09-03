@@ -54,6 +54,12 @@ async function executePaymentLink(repository, {
 
   // 3. Re-evaluate policy server-side to guarantee authority
   const isTestMode = razorpayClient.isTestMode !== undefined ? razorpayClient.isTestMode : false;
+  const humanApproval = recoveryCase.escalationStatus === 'APPROVED' ? {
+    approvedBy: recoveryCase.approvedBy,
+    approvedAt: recoveryCase.approvedAt,
+    notes: recoveryCase.reviewNotes
+  } : null;
+
   const policyDecision = evaluatePolicy({
     recoveryCase,
     diagnosis,
@@ -62,6 +68,7 @@ async function executePaymentLink(repository, {
     existingActions,
     isTestMode,
     candidateReference: stableReferenceId,
+    humanApproval,
     now
   });
 

@@ -65,15 +65,32 @@ ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS locked_by TEXT;
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS last_autonomy_error TEXT;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS escalation_status TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS escalated_reason TEXT;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS approved_by TEXT;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS rejected_by TEXT;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS review_notes TEXT;
 
 ALTER TABLE recovery_cases DROP CONSTRAINT IF EXISTS recovery_cases_autonomy_status_check;
 ALTER TABLE recovery_cases ADD CONSTRAINT recovery_cases_autonomy_status_check CHECK (
   autonomy_status IN ('INACTIVE', 'QUEUED', 'CLAIMED', 'COMPLETED', 'REVIEW_REQUIRED', 'BLOCKED', 'RETRY_SCHEDULED', 'FAILED')
 );
 
+ALTER TABLE recovery_cases DROP CONSTRAINT IF EXISTS recovery_cases_escalation_status_check;
+ALTER TABLE recovery_cases ADD CONSTRAINT recovery_cases_escalation_status_check CHECK (
+  escalation_status IN ('NONE', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED')
+);
+
 CREATE INDEX IF NOT EXISTS recovery_cases_autonomy_queue_idx
 ON recovery_cases (autonomy_status, next_retry_at, locked_until)
 WHERE autonomy_status IN ('QUEUED', 'RETRY_SCHEDULED', 'CLAIMED');
+
+CREATE INDEX IF NOT EXISTS recovery_cases_escalation_status_idx
+ON recovery_cases (escalation_status)
+WHERE escalation_status = 'PENDING_APPROVAL';
 
 CREATE TABLE IF NOT EXISTS ai_diagnoses (
   id BIGSERIAL PRIMARY KEY,
@@ -169,7 +186,8 @@ ALTER TABLE audit_events ADD CONSTRAINT audit_events_event_type_check CHECK (
     'RECOVERY_OUTCOME_RECEIVED', 'RECOVERY_OUTCOME_VERIFIED', 'RECOVERY_OUTCOME_REJECTED',
     'REVENUE_RECOVERED',
     'AUTONOMY_QUEUED', 'AUTONOMY_CLAIMED', 'AUTONOMY_COMPLETED',
-    'AUTONOMY_REVIEW_REQUIRED', 'AUTONOMY_BLOCKED', 'AUTONOMY_RETRY', 'AUTONOMY_FAILED'
+    'AUTONOMY_REVIEW_REQUIRED', 'AUTONOMY_BLOCKED', 'AUTONOMY_RETRY', 'AUTONOMY_FAILED',
+    'ESCALATION_TRIGGERED', 'ESCALATION_APPROVED', 'ESCALATION_REJECTED'
   )
 );
 

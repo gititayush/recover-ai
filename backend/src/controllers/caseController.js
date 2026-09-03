@@ -1,8 +1,10 @@
 function createCaseController(repository, diagnosisService, razorpayClient) {
   const { createDiagnosisController } = require('./diagnosisController');
   const { createPolicyController } = require('./policyController');
+  const { createEscalationController } = require('./escalationController');
   const diagnosisController = createDiagnosisController(repository, diagnosisService);
   const policyController = createPolicyController(repository, diagnosisService, razorpayClient);
+  const escalationController = createEscalationController(repository, { diagnosisService, razorpayClient });
   return {
     list: async (request, response, next) => {
       try { response.json({ cases: await repository.listCases() }); } catch (error) { next(error); }
@@ -32,7 +34,10 @@ function createCaseController(repository, diagnosisService, razorpayClient) {
     getDiagnosis: diagnosisController.get,
     evaluatePolicy: policyController.evaluate,
     executeAction: policyController.execute,
-    listActions: policyController.listActions
+    listActions: policyController.listActions,
+    approveEscalation: escalationController.approve,
+    rejectEscalation: escalationController.reject,
+    listEscalations: escalationController.listPending
   };
 }
 

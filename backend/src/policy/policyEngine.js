@@ -20,6 +20,7 @@ function evaluatePolicy({
   cooldownMinutes = environment.RAZORPAY_ACTION_COOLDOWN_MINUTES,
   candidateReference = null,
   isTestMode = true,
+  humanApproval = null,
   now = () => new Date()
 } = {}) {
   const targetAction = candidateAction
@@ -36,6 +37,11 @@ function evaluatePolicy({
     rulesEvaluated.push({ rule, status, message });
     if (status === 'BLOCK' && message) blockReasons.push(message);
     if (status === 'REVIEW' && message) reviewReasons.push(message);
+  }
+
+  // EXPLICIT HUMAN REJECTION CHECK
+  if (recoveryCase && recoveryCase.escalationStatus === 'REJECTED') {
+    recordRule('escalation_rejected', 'BLOCK', 'Case recovery was explicitly rejected by human operations. No recovery action permitted.');
   }
 
   // RULE 10 — MISSING / INVALID CONTEXT
@@ -192,13 +198,35 @@ function evaluatePolicy({
 
   let decision = 'ALLOW';
   const reasons = [];
+  let humanOverride = null;
 
   if (blockReasons.length > 0) {
+    // Non-overridable HARD BLOCK — human approval CANNOT override this
     decision = 'BLOCK';
     reasons.push(...blockReasons);
+    if (humanApproval && humanApproval.approvedBy) {
+      humanOverride = {
+        applied: false,
+        reason: 'Human approval cannot override hard BLOCK conditions.',
+        approvedBy: humanApproval.approvedBy,
+        blockReasons: [...blockReasons]
+      };
+    }
   } else if (reviewReasons.length > 0) {
-    decision = 'REVIEW';
-    reasons.push(...reviewReasons);
+    if (humanApproval && humanApproval.approvedBy) {
+      // Human approval successfully resolves explicit REVIEW conditions
+      decision = 'ALLOW';
+      humanOverride = {
+        applied: true,
+        approvedBy: humanApproval.approvedBy,
+        approvedAt: humanApproval.approvedAt || currentTime.toISOString(),
+        notes: humanApproval.notes || null,
+        overriddenReviewReasons: [...reviewReasons]
+      };
+    } else {
+      decision = 'REVIEW';
+      reasons.push(...reviewReasons);
+    }
   }
 
   return {
@@ -207,7 +235,8 @@ function evaluatePolicy({
     reasons,
     rulesEvaluated,
     policyVersion: POLICY_VERSION,
-    stopping
+    stopping,
+    humanOverride
   };
 }
 

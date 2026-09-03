@@ -27,6 +27,14 @@ function mapCase(row) {
     lockedBy: row.locked_by || null,
     nextRetryAt: row.next_retry_at || null,
     lastAutonomyError: row.last_autonomy_error || null,
+    escalationStatus: row.escalation_status || 'NONE',
+    escalatedAt: row.escalated_at || null,
+    escalatedReason: row.escalated_reason || null,
+    approvedBy: row.approved_by || null,
+    approvedAt: row.approved_at || null,
+    rejectedBy: row.rejected_by || null,
+    rejectedAt: row.rejected_at || null,
+    reviewNotes: row.review_notes || null,
     firstDetectedAt: row.first_detected_at, lastEventAt: row.last_event_at,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
@@ -158,6 +166,14 @@ class PostgresRecoveryRepository {
         locked_by=COALESCE($13, locked_by),
         next_retry_at=COALESCE($14, next_retry_at),
         last_autonomy_error=COALESCE($15, last_autonomy_error),
+        escalation_status=COALESCE($16, escalation_status),
+        escalated_at=COALESCE($17, escalated_at),
+        escalated_reason=COALESCE($18, escalated_reason),
+        approved_by=COALESCE($19, approved_by),
+        approved_at=COALESCE($20, approved_at),
+        rejected_by=COALESCE($21, rejected_by),
+        rejected_at=COALESCE($22, rejected_at),
+        review_notes=COALESCE($23, review_notes),
         updated_at=NOW()
        WHERE id=$1 RETURNING *`,
       [
@@ -175,10 +191,25 @@ class PostgresRecoveryRepository {
         changes.lockedUntil !== undefined ? changes.lockedUntil : null,
         changes.lockedBy !== undefined ? changes.lockedBy : null,
         changes.nextRetryAt !== undefined ? changes.nextRetryAt : null,
-        changes.lastAutonomyError !== undefined ? changes.lastAutonomyError : null
+        changes.lastAutonomyError !== undefined ? changes.lastAutonomyError : null,
+        changes.escalationStatus !== undefined ? changes.escalationStatus : null,
+        changes.escalatedAt !== undefined ? changes.escalatedAt : null,
+        changes.escalatedReason !== undefined ? changes.escalatedReason : null,
+        changes.approvedBy !== undefined ? changes.approvedBy : null,
+        changes.approvedAt !== undefined ? changes.approvedAt : null,
+        changes.rejectedBy !== undefined ? changes.rejectedBy : null,
+        changes.rejectedAt !== undefined ? changes.rejectedAt : null,
+        changes.reviewNotes !== undefined ? changes.reviewNotes : null
       ]
     );
     return mapCase(result.rows[0]);
+  }
+
+  async listPendingEscalations() {
+    const result = await this.pool.query(
+      "SELECT * FROM recovery_cases WHERE escalation_status = 'PENDING_APPROVAL' OR autonomy_status = 'REVIEW_REQUIRED' ORDER BY created_at DESC"
+    );
+    return result.rows.map(mapCase);
   }
 
   async claimNextJob({ workerId, leaseDurationSeconds = 60 }) {
@@ -235,10 +266,22 @@ class PostgresRecoveryRepository {
          locked_by = NULL,
          next_retry_at = $4,
          last_autonomy_error = COALESCE($5, last_autonomy_error),
+         escalation_status = COALESCE($6, escalation_status),
+         escalated_at = COALESCE($7, escalated_at),
+         escalated_reason = COALESCE($8, escalated_reason),
          updated_at = NOW()
        WHERE id = $1 AND autonomy_lease_token = $2
        RETURNING *`,
-      [caseId, leaseToken, updates.autonomyStatus || null, updates.nextRetryAt || null, updates.lastAutonomyError || null]
+      [
+        caseId,
+        leaseToken,
+        updates.autonomyStatus || null,
+        updates.nextRetryAt || null,
+        updates.lastAutonomyError || null,
+        updates.escalationStatus || null,
+        updates.escalatedAt || null,
+        updates.escalatedReason || null
+      ]
     );
     return result.rows[0] ? mapCase(result.rows[0]) : null;
   }
