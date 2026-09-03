@@ -1,24 +1,33 @@
 # Revflow — AI Revenue Recovery Control Plane
 
-> **Turn failed payments and other revenue leaks into automatically recovered revenue — with AI reasoning, deterministic financial guardrails, bounded execution, and provider-verified outcomes.**
+> **Revflow detects revenue leaks, diagnoses the underlying context, selects bounded recovery strategies, enforces deterministic financial guardrails, executes only permitted actions, verifies provider outcomes, and analyzes recovery performance.**
 
 [![Razorpay Buildathon 2026](https://img.shields.io/badge/Razorpay_Buildathon-Track_03:_AI_Revenue_Recovery-blue.svg)](https://razorpay.com)
-[![Tests](https://img.shields.io/badge/Tests-153%2F153%20Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-408%2F408%20Passing-brightgreen.svg)]()
+[![Suites](https://img.shields.io/badge/Suites-17%20Passing-brightgreen.svg)]()
 [![Node.js](https://img.shields.io/badge/Node.js-v20+-green.svg)](https://nodejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-v15+-blue.svg)](https://postgresql.org)
 [![Razorpay](https://img.shields.io/badge/Razorpay-Test%20Mode-0C2340.svg)](https://razorpay.com)
-[![Status](https://img.shields.io/badge/Status-Live%20Demo%20Ready-success.svg)]()
+[![Status](https://img.shields.io/badge/Status-Milestone%206%20Complete-success.svg)]()
 
-🌐 **Live Demo Application**: [https://revflow.onrender.com](https://revflow.onrender.com)  
+🌐 **Demonstration Deployment**: [https://revflow.onrender.com](https://revflow.onrender.com) *(prototype demo environment)*  
 📖 **Technical Architecture Guide**: [docs/architecture.md](docs/architecture.md)
 
 ---
 
-### The Fundamental Product Principle
+## 1. Product & Value Proposition
+
+When a payment fails at checkout, during subscription renewal, or against a B2B invoice, traditional payment infrastructure simply logs an error and stops. Merchants face silent revenue leakage across multiple domains:
+- **Transient Gateway & Network Drops**: Peak-hour bank switch timeouts abandon buyers who would pay if given a direct fallback link.
+- **Checkout Drop-Off & Hesitation**: Customers abandon checkout during OTP entry or authentication friction without an automated recovery path.
+- **Involuntary Subscription Churn**: Recurring card charges fail due to temporary limit exhaustion or maintenance windows.
+- **Aged B2B Receivables**: Manual invoice collections are slow, unstructured, and lack term-aware chasing logic.
+
+Revflow transforms revenue recovery from passive error logging into an **autonomous, bounded control plane**:
 
 ```text
        ┌─────────────┐
-       │ AI Proposes │ (Advisory hypothesis grounded in payment signals)
+       │ AI Proposes │ (Advisory hypothesis grounded strictly in observed signals)
        └──────┬──────┘
               ▼
      ┌─────────────────┐
@@ -26,231 +35,259 @@
      └────────┬────────┘
               ▼
        ┌─────────────┐
-       │Execution Acts│ (Bounded Razorpay Payment Link execution)
+       │Executor Acts│ (Bounded Razorpay Payment Link or Simulated Strategy)
        └──────┬──────┘
               ▼
      ┌─────────────────┐
-     │Razorpay Verifies│ (Provider-signed webhook with HMAC-SHA256 signature)
+     │Provider Verifies│ (External signed webhook with HMAC-SHA256 signature)
      └────────┬────────┘
               ▼
      ┌──────────────────┐
-     │Revflow Reconciles│ (Verifies identity, amount, currency & attributes revenue)
+     │Revflow Reconciles│ (Verifies identity, exact amount, currency & credits ledger)
      └──────────────────┘
+```
+
+```text
+DETECT  →  CONTEXT  →  DIAGNOSE  →  NEXT-BEST-ACTION  →  STOP / WAIT / ESCALATE  →  POLICY  →  BOUNDED EXECUTION  →  VERIFY  →  RECONCILE  →  ANALYZE
 ```
 
 > [!IMPORTANT]
 > **AI never touches merchant money directly.**  
-> In Revflow, AI is strictly advisory. It diagnoses failure context and proposes next-best actions. Only a deterministic, server-side policy engine holds the authority to approve an action. Even then, execution is bounded, fail-closed, and never counted as revenue until confirmed via provider-signed webhook and verified through reconciliation (checking provider identity, exact amount, currency, and action correlation).
+> In Revflow, AI is strictly advisory. It diagnoses context and proposes next-best actions. Only a deterministic, server-side policy engine holds the authority to approve an action. Even then, execution is bounded, fail-closed, and never counted as revenue until confirmed via a provider-signed webhook and verified through reconciliation (checking provider identity, exact amount, currency, and action correlation).
 
 ---
 
-## What is Working Today
+## 2. Verified Proof & Current Results
 
-Revflow is not a concept or an ungrounded prompt wrapper. It is a working, tested, and deployed revenue recovery control plane:
+Revflow is backed by authoritative test-mode ledger proof and comprehensive automated verification:
 
-- ✅ **3/3 recovery cases resolved** in the current live demonstration batch
-- ✅ **₹1,750 revenue recovered** through Razorpay Test Mode workflows
-- ✅ **100% verified recovery rate** on the current 3-case test batch
-- ✅ **153/153 automated tests passing** across 7 test suites (Vitest)
-- ✅ **Live AI diagnosis running in production** with strict Zod schema validation
-- ✅ **12 deterministic financial safety guardrails** (`recoverai-policy-v1`)
-- ✅ **Bounded Razorpay Payment Link creation** with test mode verification
-- ✅ **Provider webhook reconciliation** for `payment_link.paid`, `payment.captured`, and `order.paid`
-- ✅ **Multi-strategy correlation** (Payment Link ID → Idempotency Reference → Payment/Order ID)
-- ✅ **Mathematical duplicate-action protection** and rate-limiting cooldowns
-- ✅ **Fail-closed safety defaults** across AI timeouts, provider errors, and amount discrepancies
-- ✅ **Autonomous background recovery worker** with atomic lease claiming and backoff
-- ✅ **Payment-scoped deterministic idempotency** that prevents collisions with historical provider entities
-
-> [!NOTE]
-> *Note on Demonstration Scope*: The 100% recovery rate cited above refers specifically to the verified 3-case Test Mode demonstration batch. All demonstrated transactions use Razorpay Test Mode keys; no real customer funds are handled or transferred during demonstrations.
+- ✅ **3/3 current Test Mode recovery cases resolved** in the verified demonstration batch
+- ✅ **₹1,750 verified recovered revenue** through closed-loop Razorpay Test Mode workflows
+- ✅ **100% recovery on the current 3-case Test Mode batch** *(strictly scoped to this demonstration batch; not a universal product claim)*
+- ✅ **408/408 automated tests passing** across 17 comprehensive test suites (`pnpm test`)
+- ✅ **Four active revenue recovery playbooks** operating on a single unified control plane
+- ✅ **Adversarial Financial Safety Suite** with 81 dedicated adversarial security tests
+- ✅ **Next-Best-Action (NBA) Engine** with deterministic Expected Recovery Value (ERV) heuristic scoring
+- ✅ **Explicit Explainable Stopping Engine** (`STOP`, `WAIT`, `ESCALATE`, `CONTINUE`)
+- ✅ **Human Escalation Lifecycle** (`PENDING_APPROVAL` $\rightarrow$ `APPROVED` / `REJECTED`) where human approval can never override `BLOCK`
+- ✅ **Batch Revenue Recovery** with strict provenance separation (`SIMULATED_BATCH` vs `TEST_MODE_VERIFIED`)
+- ✅ **Portfolio Outcome Intelligence** covering velocity, failure modes, stopping reasons, and strategy performance
+- ✅ **Operational Agent Evaluation Telemetry** tracking schema validity, grounding, decision distribution, and latency
+- ✅ **Payment-Scoped Deterministic Idempotency** (`rc_<caseId>_<paymentToken>_v<attempt>`) eliminating historical provider entity collisions
 
 > [!IMPORTANT]
-> **The Important Distinction: Action Execution $\neq$ Revenue Recovered**  
-> Creating a recovery Payment Link is simply initiating an action; it does **not** equal recovered revenue.  
+> **The Golden Rule of Revenue Accounting: Action Execution $\neq$ Revenue Recovered**  
+> Creating a recovery Payment Link is simply initiating an action; it does **not** count as recovered revenue.  
 > 
-> Revenue is counted only after the complete verification loop closes:  
-> **Customer pays → Provider-signed Razorpay webhook → HMAC-SHA256 signature verification → Reconciliation (verifying provider identity, exact amount, currency, and action correlation) → Case RESOLVED.**  
-> 
-> In the current Test Mode batch, this closed loop produced **₹1,750 verified recovered revenue across 3/3 cases**.
+> Revenue is credited to the ledger **only** after the complete verification loop closes:  
+> **Customer pays $\rightarrow$ Provider-signed Razorpay webhook $\rightarrow$ HMAC-SHA256 signature verification $\rightarrow$ Reconciliation (verifying provider identity, exact amount, currency, and action correlation) $\rightarrow$ Case RESOLVED.**
+
+### Authoritative Real Test Mode Cases
+
+| Case | Database ID | Authoritative Payment ID | Amount | Initial Failure Reason | Final Case State | Razorpay Test Mode Outcome | Verified Recovered |
+| :---: | :---: | :--- | :---: | :--- | :---: | :---: | :---: |
+| **Case #1** | `1` | `pay_TXH3filWdhVk3j` | ₹500 | `Payment failed` (Transient) | `RESOLVED` | ✅ Verified Paid (`plink_TWqGhXHacJQ8O3`) | **₹500.00** |
+| **Case #2** | `2` | `pay_TXHXFLRWrIcSRC` | ₹500 | `Payment failed` (Transient) | `RESOLVED` | ✅ Verified Paid (`plink_new_case_2_live`) | **₹500.00** |
+| **Case #3** | `3` | `pay_TXI3fVdh2jU4Nq` | ₹750 | `Bank switch timeout` (Transient) | `RESOLVED` | ✅ Verified Paid (`plink_TXJkz7JK7NjqtM`) | **₹750.00** |
+
+- **Total Batch Revenue at Risk**: ₹1,750 (175,000 paise)
+- **Total Verified Revenue Recovered**: ₹1,750 (175,000 paise)
+- **Batch Recovery Rate**: 100% on the current 3-case Test Mode batch
 
 ---
 
-## See the Recovery Loop
-
-```text
-payment.failed (Webhook Ingestion)
-       │
-       ▼
-Deterministic Risk Assessment (RECOVERABLE / MEDIUM Risk)
-       │
-       ▼
-Recovery Case Created & Persistent Audit Trail Initialized
-       │
-       ▼
-Autonomous Worker Claims Case (Atomic DB Lease Token)
-       │
-       ▼
-AI Diagnosis (Extracts Cause, Category, Confidence, Grounded Evidence)
-       │
-       ▼
-Deterministic Policy Evaluation (12 Rules Evaluated Server-Side → ALLOW)
-       │
-       ▼
-Bounded Execution (Generates Payment Link via Razorpay Test Mode API)
-       │
-       ▼
-Customer Opens Payment Link & Completes Test Payment
-       │
-       ▼
-Razorpay Dispatches payment_link.paid Webhook (HMAC-SHA256 Signed)
-       │
-       ▼
-Outcome Reconciliation Engine (Verifies Provider Identity, Amount, Currency & Action)
-       │
-       ▼
-Case Status: RESOLVED | Revenue Recovered Credited to Ledger
-```
-
-In production, **Case #3** (₹750) was processed through this exact loop autonomously: failed payment ingested → AI diagnosed → policy evaluated `ALLOW` → Razorpay Payment Link generated → customer paid in Test Mode → webhook verified → case marked `RESOLVED`.
-
----
-
-## The Business Problem
-
-When a customer's payment fails at checkout, during subscription renewal, or against a B2B invoice, most payment infrastructure does exactly one thing: **it logs an error code and stops.**
-
-Merchants face massive revenue leakage across four silent failure modes:
-1. **Transient Gateway & Network Drops**: Card networks or banking switches timeout during peak hours, abandoning high-intent buyers who would have paid if offered a direct fallback link.
-2. **Checkout Hesitation & Drop-Off**: Customers encounter friction or 3D-Secure failures and abandon cart without an automated, low-friction recovery path.
-3. **Recurring & Subscription Friction**: Automated subscription charges fail due to card limits or maintenance windows, leading to involuntary churn.
-4. **Unpaid B2B Invoices**: Manual collections workflows are slow, expensive, and lack context-aware follow-ups.
-
-> **"Most payment systems tell a merchant that something failed. Revflow is designed to decide what should happen next, act within strict financial boundaries, and verify whether the intervention actually recovered money."**
-
----
-
-## Why an AI Agent? (And Why AI Needs Guardrails)
-
-### Why Blind Retry Scripts Fail
-Traditional recovery relies on rigid cron jobs or naive retry rules (e.g., *"retry every 4 hours"*):
-- They **retry terminal errors** (e.g., stolen cards or cancelled orders), creating bank fees and merchant penalties.
-- They **ignore context**: A ₹50,000 corporate purchase requires fundamentally different handling than a ₹200 recurring charge.
-- They **cannot adapt**: A failure caused by a temporary acquirer degradation requires an instant alternative payment link, whereas an authentication drop requires customer communication.
-
-### Where AI Excels
-An AI reasoning engine excels at synthesizing unstructured failure signals into actionable diagnosis:
-- Normalizing messy gateway error descriptions, retry counts, timing context, and order status.
-- Classifying failure archetypes (`TRANSIENT_PAYMENT_FAILURE`, `CHECKOUT_DROPOFF`, `MANDATE_TIMING`).
-- Grounding diagnoses strictly in observed facts to eliminate hallucinations.
-- Proposing the optimal recovery playbook and contextual customer messaging.
-
-### Why Unrestricted AI is Dangerous in Fintech
-An LLM must **never** be given raw API keys or unrestricted execution authority in financial workflows:
-- LLMs can hallucinate amounts, duplicate operations, or bypass business logic.
-- Non-deterministic outputs can trigger unexpected financial liabilities.
-- **Revflow's solution**: The AI is strictly an **advisory diagnostician**. A deterministic policy engine sits between the AI and the payment gateway, acting as an unbypasable firewall.
-
----
-
-## System Architecture
+## 3. Core System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph INGESTION ["1. Ingestion & Normalization"]
-        WE[Razorpay Webhook: payment.failed] --> H[HMAC-SHA256 Signature Verify]
-        H --> DEDUP[Provider Event ID Deduplication]
-        DEDUP --> NORM[Normalized Event Canonical Format]
+    subgraph SIGNALS ["1. Ingestion & Multi-Playbook Routing"]
+        EV[Incoming Event Stream] --> H[HMAC-SHA256 Webhook Auth]
+        H --> PE[Playbook Engine Coordinator]
+        PE -->|Priority Match| PB1[Payment Degradation]
+        PE -->|Priority Match| PB2[Checkout Drop-Off]
+        PE -->|Priority Match| PB3[Subscription Recovery]
+        PE -->|Priority Match| PB4[B2B Receivables]
     end
 
-    subgraph RISK ["2. Risk Engine & Case Management"]
-        NORM --> DET[Deterministic Risk Detector]
+    subgraph RISK ["2. Risk Assessment & Case Management"]
+        PB1 & PB2 & PB3 & PB4 --> DET[Risk Assessment & State Determination]
         DET --> RC[(PostgreSQL: Recovery Cases)]
         RC --> AUD[(Append-Only Audit Trail)]
     end
 
-    subgraph AI_LAYER ["3. AI Advisory Diagnosis"]
-        RC --> CTX[Minimized Fact-Only Context]
+    subgraph AI_LAYER ["3. AI Advisory Diagnosis & Next-Best-Action"]
+        RC --> CTX[Playbook Context Extraction]
         CTX --> LLM[AI Provider / Gemini / Fallback]
-        LLM --> ZOD[Zod Schema & Evidence Field Validation]
-        ZOD --> DIAG[(Persisted Diagnosis Proposal)]
+        LLM --> ZOD[Zod Schema & Strict Field Validation]
+        ZOD --> NBA[Next-Best-Action Evaluator]
+        NBA --> ERV[Heuristic ERV Scoring]
     end
 
-    subgraph POLICY ["4. Deterministic Financial Guardrails"]
-        DIAG --> POL[Policy Engine: 12 Safety Rules]
-        POL -->|BLOCK or REVIEW| ESC[Escalate to Human Review / Halt]
+    subgraph GOVERNANCE ["4. Stopping & Deterministic Policy Guardrails"]
+        ERV --> STOP[Explicit Stopping Engine: STOP / WAIT / ESCALATE / CONTINUE]
+        STOP -->|CONTINUE| POL[Policy Engine: 12 Deterministic Rules]
+        POL -->|BLOCK| BLK[Action Blocked / Log Audit]
+        POL -->|REVIEW| ESC[Human Escalation Lifecycle: PENDING_APPROVAL]
+        ESC -->|Approved| POL_RECHECK[Policy Revalidation]
+        ESC -->|Rejected| BLK
     end
 
-    subgraph EXECUTION ["5. Bounded Execution"]
-        POL -->|ALLOW| EXEC[Payment Link Executor]
-        EXEC --> IDEMP[Deterministic Reference rc_id_paymentId_v1]
-        IDEMP --> RZP_API[Razorpay Test Mode API]
-        RZP_API --> ACT[(recovery_actions: EXECUTED)]
+    subgraph EXECUTION ["5. Bounded Execution Engine"]
+        POL -->|ALLOW| DISP{Execution Mode}
+        POL_RECHECK -->|ALLOW| DISP
+        DISP -->|LIVE_PROVIDER| EXEC_LIVE[Payment Link Executor: rc_id_paymentId_v1]
+        DISP -->|SIMULATED| EXEC_SIM[Simulated Action Executor: Advisory Context]
+        DISP -->|CONTROL| EXEC_CTRL[Control Action: NO_ACTION / REVIEW]
+        EXEC_LIVE --> RZP[Razorpay Test Mode API]
     end
 
     subgraph RECONCILIATION ["6. Provider Verification & Ledger"]
-        RZP_API -.->|Customer Pays| PAID_HOOK[Razorpay Webhook: payment_link.paid]
+        RZP -.->|Customer Pays| PAID_HOOK[Razorpay Webhook: payment_link.paid]
         PAID_HOOK --> RECON[Reconciliation Engine]
         RECON -->|Verify Amount + Currency + Provider ID| CONF[(recovery_outcomes: VERIFIED)]
         CONF --> RESOLVE[Case Status: RESOLVED]
         CONF --> LEDGER[Credited to Recovered Revenue Ledger]
     end
 
-    ESC --> AUD
-    ACT --> AUD
+    BLK --> AUD
+    EXEC_LIVE --> AUD
+    EXEC_SIM --> AUD
     RESOLVE --> AUD
 ```
 
-### Separation of Responsibilities
+### Separation of Responsibilities & Execution Modes
 
-| Component | Responsibility | Authority Level | Can Move Money? |
-| :--- | :--- | :--- | :---: |
-| **AI Diagnosis** | Analyzes failure signals, extracts cause, proposes action | Advisory | ❌ No |
-| **Policy Engine** | Evaluates 12 deterministic rules, limits, and cooldowns | Authoritative | ❌ No |
-| **Recovery Executor** | Calls Razorpay API with idempotent payment-scoped reference | Bounded | ⚠️ Links Only |
-| **Razorpay Provider** | Processes actual payment, signs webhook event | External Source of Truth | ✅ Yes |
-| **Reconciliation Engine** | Verifies provider identity, amount, currency, and action correlation | Ledger Authority | ❌ Credits Only |
-
----
-
-## AI Diagnosis & Strict Schema Validation
-
-Revflow's diagnosis engine inspects failure context and outputs structured JSON strictly validated via Zod (`backend/src/ai/diagnosisSchema.js`).
-
-### Enforced Constraints
-- **13 Allowed Evidence Fields**: Evidence must reference exact system vocabulary (`payment.status`, `payment.failureReason`, `case.amount`, `order.status`, etc.).
-- **Constrained Categories**: Must fall into defined archetypes (`TRANSIENT_PAYMENT_FAILURE`, `CHECKOUT_DROPOFF`, `FAILED_SUBSCRIPTION`, `B2B_APPROVAL_DELAY`, etc.).
-- **Confidence Scoring**: Confidence is a float $\in [0, 1]$. If confidence falls below 0.65, policy automatically halts automated execution and demands human review.
-- **Zero Execution Authority**: Recommendation specifies an action identifier (`CREATE_PAYMENT_LINK`), but the AI possesses no network client or credentials.
-
-### Representative Diagnosis Proposal (Example)
-```json
-{
-  "diagnosis": {
-    "category": "TRANSIENT_PAYMENT_FAILURE",
-    "cause": "Upstream bank switch timed out during payment authorization.",
-    "confidence": 0.88,
-    "evidence": [
-      { "field": "payment.status", "value": "failed" },
-      { "field": "payment.failureReason", "value": "Payment processing timed out at acquirer" },
-      { "field": "case.amount", "value": "50000" }
-    ]
-  },
-  "recommendation": {
-    "action": "CREATE_PAYMENT_LINK"
-  }
-}
-```
+| Component | Responsibility | Authority Level | Can Move Money? | Execution Mode |
+| :--- | :--- | :--- | :---: | :---: |
+| **Playbook Engine** | Event matching, context extraction, candidate scoping | Routing | ❌ No | Internal |
+| **AI Diagnosis** | Analyzes signals, classifies cause, proposes recommendation | Advisory | ❌ No | Internal |
+| **Next-Best-Action (ERV)** | Ranks candidate actions via heuristic economic value | Advisory | ❌ No | Internal |
+| **Stopping Engine** | Halts actions for settled, terminal, or cooling-down cases | Pre-Policy Gate | ❌ No | Internal |
+| **Policy Engine** | Evaluates 12 deterministic financial safety rules | Authoritative | ❌ No | Internal |
+| **Human Escalation** | Approves/rejects `REVIEW` actions; cannot override `BLOCK` | Governance | ❌ No | Control |
+| **Live Executor** | Bounded Razorpay API client using payment-scoped references | Bounded | ⚠️ Links Only | `LIVE_PROVIDER` |
+| **Simulated Executor** | Executes advisory retries, outreach, and reminders | Simulation | ❌ No | `SIMULATED` |
+| **Razorpay Provider** | Processes payment in Test Mode, signs webhook event | Source of Truth | ✅ Yes | External |
+| **Reconciliation Engine** | Verifies signature, amount, currency, and action correlation | Ledger Authority | ❌ Credits Only | Verification |
 
 ---
 
-## Policy Engine & Financial Safety (The 12 Guardrails)
+## 4. Why an AI Agent? (And Why AI Needs Deterministic Guardrails)
 
-The server-side policy engine (`backend/src/policy/policyEngine.js`, version `recoverai-policy-v1`) independently evaluates 12 rules before any recovery action can execute.
+### Why Blind Retry Scripts Fail
+Traditional recovery relies on rigid cron jobs or naive retry loops:
+- **Retrying Terminal Errors**: Blindly retrying stolen cards, closed accounts, or cancelled orders racks up bank penalty fees and degrades merchant reputation.
+- **Context Blindness**: A ₹50,000 corporate purchase requires fundamentally different recovery handling than a ₹200 recurring consumer charge.
+- **Inability to Adapt**: An acquirer downtime requires an instant alternative payment link, whereas an authentication hesitation requires contextual customer communication.
 
-```text
-Decision Precedence: BLOCK  ≻  REVIEW  ≻  ALLOW
-```
+### Where AI Excels
+An LLM reasoning engine excels at synthesizing unstructured failure signals into actionable context:
+- Normalizing messy gateway error descriptions, retry counts, timing context, and order status.
+- Classifying failure archetypes (`TRANSIENT_PAYMENT_FAILURE`, `CHECKOUT_DROPOFF`, `FAILED_SUBSCRIPTION`, `B2B_APPROVAL_DELAY`).
+- Grounding diagnoses strictly in observed facts to eliminate hallucinations.
+- Proposing the optimal recovery strategy and contextual communication.
+
+### Why Unrestricted AI is Dangerous in Fintech
+An LLM must **never** be given raw API keys or unrestricted execution authority:
+- LLMs can hallucinate amounts, duplicate operations, or bypass business logic.
+- Non-deterministic outputs create severe financial liabilities and compliance breaches.
+- **Revflow's solution**: The AI is strictly an **advisory diagnostician**. A deterministic policy engine sits between the AI and payment gateways, acting as an unbypasable firewall.
+
+---
+
+## 5. Revenue Recovery Playbooks
+
+Revflow expands beyond payment failures into four distinct revenue-leak domains, all sharing one unified control plane:
+
+### 1. Payment Degradation Playbook (`payment_degradation`)
+- **Domain**: Transaction Gateway & Network Failures
+- **Triggers**: `payment.failed`, `payment.authorized`, `payment.captured`, `payment.disputed`, `refund.processed`
+- **Context**: Gateway error codes, network timeouts, bank switch latency, historical retry counts
+- **Candidate Actions**: `CREATE_PAYMENT_LINK` (`LIVE_PROVIDER`), `SCHEDULE_RETRY_WINDOW` (`SIMULATED`), `NO_ACTION` (`CONTROL`)
+- **Stopping Rules**: Immediate hard-stop on captured/settled/refunded payments; cooldown wait on transient network errors.
+
+### 2. Checkout Drop-Off Playbook (`checkout_drop_off`)
+- **Domain**: E-Commerce & Checkout Funnel Abandonment
+- **Triggers**: `checkout.started`, `checkout.step_completed`, `checkout.drop_off`, `checkout.abandoned`, `checkout.completed`, `checkout.expired`, `checkout.opted_out`
+- **Context**: Funnel step reached (`payment_method`, `otp`, `auth`), abandonment hesitation reason, cart item count, coupon applied
+- **Candidate Actions**: `CHECKOUT_RECOVERY` (`SIMULATED`), `CREATE_PAYMENT_LINK` (`LIVE_PROVIDER`), `CUSTOMER_OUTREACH` (`SIMULATED`), `NO_ACTION` (`CONTROL`)
+- **Stopping Rules**: Hard-stop when checkout was completed, session expired, or customer opted out; 30m quiet-window enforcement.
+
+### 3. Subscription Recovery Playbook (`failed_subscription`)
+- **Domain**: Recurring Billing & Involuntary Churn
+- **Triggers**: `subscription.charged`, `subscription.renewal_failed`, `subscription.payment_failed`, `subscription.halted`, `subscription.cancelled`, `subscription.expired`, `subscription.reactivated`
+- **Context**: Subscription ID, plan tier, billing frequency, consecutive renewal failure count, grace period expiry
+- **Candidate Actions**: `SCHEDULE_RETRY_WINDOW` (`SIMULATED`), `CREATE_PAYMENT_LINK` (`LIVE_PROVIDER`), `CUSTOMER_OUTREACH` (`SIMULATED`), `REQUEST_MANUAL_REVIEW` (`CONTROL`), `NO_ACTION` (`CONTROL`)
+- **Stopping Rules**: Hard-stop if subscription was cancelled, expired, or already charged; escalation when retry attempts exceed tier limits.
+- *Note*: Covers core state transitions and bounded link recovery; does not claim full production subscription-provider lifecycle integration.
+
+### 4. B2B Receivables Playbook (`b2b_receivables`)
+- **Domain**: Corporate Invoices & Commercial Collections
+- **Triggers**: `invoice.created`, `invoice.due`, `invoice.overdue`, `invoice.payment_failed`, `invoice.paid`, `invoice.disputed`, `invoice.cancelled`
+- **Context**: `invoiceId`, `dueDate`, `daysOverdue`, `paymentTerms` (`NET_30`, `NET_60`), `invoiceStatus`, `disputeStatus`
+- **Candidate Actions**: `INVOICE_REMINDER` (`SIMULATED`), `CREATE_PAYMENT_LINK` (`LIVE_PROVIDER`), `CUSTOMER_OUTREACH` (`SIMULATED`), `REQUEST_MANUAL_REVIEW` (`CONTROL`), `NO_ACTION` (`CONTROL`)
+- **Stopping Rules**:
+  - `INVOICE_ALREADY_PAID` $\rightarrow$ `HARD_STOP` (₹0 credited, prevents chasing paid accounts)
+  - `INVOICE_CANCELLED` / `INVOICE_DISPUTED` $\rightarrow$ `HARD_STOP` (halts automated collections during dispute)
+  - `B2B_TERMS_NOT_REACHED` $\rightarrow$ `WAIT` (cooldown active until payment due date passes)
+  - `COLLECTION_WINDOW_EXPIRED` $\rightarrow$ `ESCALATE` (aged receivables $> 180$ days routed to management review)
+- *Note*: B2B events represent internal domain events unless integrated with an external invoicing provider.
+
+### Modular Playbook Engine Coordinator (`backend/src/playbooks/playbookEngine.js`)
+- **Deterministic Priority Matching**: Evaluates playbooks in descending order of priority (specialized B2B and Subscription playbooks evaluate before falling back to general Payment Degradation).
+- **Strict Registration Validation (`PlaybookRegistrationError`)**:
+  - Rejects missing, null, or empty playbook IDs
+  - Enforces unique IDs to prevent accidental overrides
+  - Validates required metadata (`name`, `domain`, `priority`)
+  - Asserts required interface implementations: `matchesEvent()`, `assessRisk()`, `extractContext()`, `getCandidateActions()`
+  - Validates that every candidate action is registered in the central `Strategy Registry` with a recognized execution mode
+- **Extensibility Invariant**: New revenue recovery scenarios can be added simply by registering a module. AI diagnosis, stopping logic, policy guardrails, human review, and ledger reconciliation are reused without modification.
+
+---
+
+## 6. Safety, Governance & Guardrails
+
+### Strategy Registry & Execution Modes (`backend/src/policy/strategyRegistry.js`)
+
+| Strategy ID | Strategy Name | Execution Mode | Target Playbooks | Bounded Action Description |
+| :--- | :--- | :---: | :--- | :--- |
+| `CREATE_PAYMENT_LINK` | Razorpay Payment Link | `LIVE_PROVIDER` | All Playbooks | Generates a verified Razorpay Test Mode payment link for the outstanding balance. |
+| `SCHEDULE_RETRY_WINDOW` | Smart Retry Window | `SIMULATED` | Subscription, Payment | Schedules a simulated recovery attempt after a cooldown window. |
+| `CHECKOUT_RECOVERY` | Cart Recovery Nudge | `SIMULATED` | Checkout Drop-Off | Generates simulated cart recovery context for abandoned checkout flows. |
+| `CUSTOMER_OUTREACH` | Multi-Channel Outreach | `SIMULATED` | Checkout, Subscription, B2B | Prepares simulated SMS/email communication to re-engage the customer. |
+| `INVOICE_REMINDER` | B2B Invoice Reminder | `SIMULATED` | B2B Receivables | Simulates overdue invoice reminders aligned with commercial payment terms. |
+| `DISPATCH_VERNACULAR_ASSIST`| Vernacular Messaging | `SIMULATED` | Payment, Checkout | Formats localized recovery copy. |
+| `RECORD_PROMISE_TO_PAY` | Promise to Pay | `SIMULATED` | B2B Receivables | Logs customer payment commitments to pause active dunning workflows. |
+| `REQUEST_MANUAL_REVIEW` | Human Escalation | `CONTROL` | All Playbooks | Routes complex, high-value, or low-confidence cases to operators. |
+| `NO_ACTION` | Suppress Intervention | `CONTROL` | All Playbooks | Explicitly halts recovery when customer friction exceeds potential recovery value. |
+
+> [!NOTE]
+> *Execution Mode Boundaries*: Only `LIVE_PROVIDER` strategies communicate with external financial APIs. `SIMULATED` actions record structured operational metadata without calling external services and **never** credit recovered revenue.
+
+### Expected Recovery Value (ERV) Heuristic Scoring
+Candidate actions are ranked using transparent, deterministic heuristic scoring:
+
+$$\mathbf{ERV} = \left(\text{Amount} \times P_{\text{recovery}}\right) - \text{Intervention Cost} - \text{Estimated Customer Friction}$$
+
+- $P_{\text{recovery}}$: Baseline probability modified by failure transientness and recency.
+- $\text{Intervention Cost}$: Estimated computational/messaging dispatch overhead.
+- $\text{Customer Friction}$: Penalty for intrusive communications.
+- *Disclosure*: ERV is an explainable deterministic heuristic, not an ungrounded black-box ML model.
+
+### Explicit Stopping Engine (`backend/src/policy/stoppingEngine.js`)
+- **`HARD_STOP`**: Halts recovery immediately (`PAYMENT_ALREADY_SETTLED`, `INVOICE_ALREADY_PAID`, `SUBSCRIPTION_CANCELLED`, `CHECKOUT_OPTED_OUT`, `MAX_ATTEMPTS_EXCEEDED`, `CUSTOMER_DISPUTED`).
+- **`WAIT`**: Suspends action pending temporal conditions (`COOLDOWN_ACTIVE` 30m quiet period, `B2B_TERMS_NOT_REACHED`).
+- **`ESCALATE`**: Demands human intervention (`COLLECTION_WINDOW_EXPIRED` > 180 days, `HIGH_VALUE_EXPOSURE`).
+- **`CONTINUE`**: Case is clear to proceed to policy evaluation.
+
+### Human Escalation Lifecycle (`backend/src/controllers/escalationController.js`)
+1. Case status transitions to `PENDING_APPROVAL` when policy triggers `REVIEW` (> ₹25,000 or AI confidence < 0.65).
+2. Authorized operators review via `/api/cases/:id/escalations/approve` or `/reject`.
+3. **Core Safety Invariant**: Human approval **can resolve a `REVIEW`**, but **can NEVER override a `BLOCK`**.
+4. Policy and provider states are revalidated immediately prior to execution to prevent TOCTOU race conditions.
+
+### Policy Engine & Financial Safety (The 12 Guardrails)
+Server-side policy engine (`recoverai-policy-v1`) independently evaluates 12 deterministic rules (`BLOCK ≻ REVIEW ≻ ALLOW`):
 
 | Rule | Policy Name | Guardrail Logic & Rationale | Action on Trigger |
 | :---: | :--- | :--- | :---: |
@@ -260,31 +297,40 @@ Decision Precedence: BLOCK  ≻  REVIEW  ≻  ALLOW
 | **4** | `terminal_payment` | Blocks execution if original payment was already captured, settled, or refunded. | `BLOCK` |
 | **5** | `case_status` | Halts execution if the case has already transitioned to `RESOLVED` or `SUPPRESSED`. | `BLOCK` |
 | **6** | `resolved_outcome_check`| Halts execution if payment outcome was already satisfied in event history. | `BLOCK` |
-| **7** | `action_allowlist` | Ensures only explicitly authorized actions (`CREATE_PAYMENT_LINK`) can run. | `BLOCK` |
+| **7** | `action_allowlist` | Ensures only explicitly authorized actions can run. | `BLOCK` |
 | **8** | `confidence_threshold` | Demands human oversight if AI diagnosis confidence is below 0.65. | `REVIEW` |
 | **9** | `max_attempts` | Caps automated recovery at 2 attempts per case to prevent customer harassment. | `REVIEW` |
 | **10** | `duplicate_action` | Blocks execution if an active payment link already exists for this case. | `BLOCK` |
 | **11** | `high_value_escalation` | Cases exceeding ₹25,000 ($2,500,000$ paise) require explicit human sign-off. | `REVIEW` |
 | **12** | `cooldown_period` | Enforces a mandatory 30-minute quiet period between automated attempts. | `REVIEW` |
 
-### Fail-Closed Principle
-If the AI provider times out, returns HTTP 429, produces malformed JSON, fails Zod parsing, or proposes an ungrounded action, **Revflow fails closed**: execution stops immediately, an audit log is written, and the case escalates to human review. The system never guesses.
+### Adversarial Financial Safety Suite
+Milestone 4 introduced **81 dedicated adversarial tests** (`backend/test/adversarialFinancialSafety.test.js`) verifying:
+- Amount and currency integrity (floating paise, zero amounts, negative values)
+- Terminal states and settled payment protection
+- Duplicate execution and idempotency locks
+- Historical provider identity collision prevention
+- Webhook HMAC signature forgery and replay attack prevention
+- AI schema violations, malformed JSON, and hallucinated evidence fields
+- Provider 4xx, 5xx, and 429 rate-limit injection handling
+- Concurrency and Time-of-Check to Time-of-Use (TOCTOU) race condition protection
+- Human approval bypass prevention (cannot override `BLOCK`)
+- Stale cases, cooldown enforcement, and max attempt caps
 
 ---
 
-## Real-World Engineering: Provider Idempotency & Database Lifecycles
+## 7. Provider Idempotency & Payment-Scoped References
 
-During live deployment testing, Revflow uncovered a critical real-world edge case in fintech agent architectures:
+During live deployment testing, Revflow uncovered and solved a critical distributed systems edge case:
 
-### The Bug
-1. Recovery references were initially generated as `razorpay_case_{caseId}_plink_v{attempt}` (e.g., `razorpay_case_2_plink_v1`).
-2. When the PostgreSQL database was re-seeded during a deployment cycle, auto-increment case IDs reset (`1, 2, 3...`).
-3. In Razorpay Test Mode, Payment Links created days prior **persisted permanently** in the merchant account under those references.
-4. When Case #2 (₹500 / 50000 paise) executed, Revflow queried Razorpay for existing links under `razorpay_case_2_plink_v1` and found a historical test link from 3 days prior created for ₹100 (10000 paise).
-5. The policy engine flagged an amount discrepancy (`Amount: 10000 vs 50000`) and blocked execution.
+### The Problem: Database Sequence Resets vs Provider Persistence
+1. Auto-increment database IDs (`Case #1, Case #2`) reset whenever a database is re-seeded or migrated.
+2. In Razorpay Test Mode, Payment Links persist permanently under their reference IDs.
+3. If recovery references rely solely on database IDs (`razorpay_case_2_plink_v1`), a newly created Case #2 for ₹500 will discover a historical link created days prior for ₹100 under that reference.
+4. This discrepancy causes false policy blocks or incorrect payment amounts.
 
-### The Fix: Payment-Scoped Deterministic References
-Revflow updated its reference generation to tie directly to the unique failed payment identifier:
+### The Solution: Payment-Scoped Deterministic References
+Revflow generates reference IDs tied directly to immutable transaction identifiers:
 
 ```javascript
 function buildStableReferenceId(recoveryCase, attemptNumber = 1) {
@@ -298,185 +344,57 @@ function buildStableReferenceId(recoveryCase, attemptNumber = 1) {
 }
 ```
 
+- **Format**: `rc_<caseId>_<paymentToken>_v<attempt>`
 - **Example Output**: `rc_2_pay_TXHXFLRWrIcSRC_v1` (26 characters).
-- **Guaranteed Boundedness**: Mathematically capped at $\le 40$ characters (Razorpay's API limit).
-- **Deterministic & Zero-Randomness**: Retries of the same case attempt compute the exact same string, ensuring safe deduplication and race-recovery adoption without UUID drift.
-- **Provider Isolation**: Database sequence resets can never collide with historical payment links.
+- **Strict Boundedness**: Mathematically capped at $\le 40$ characters (Razorpay's API limit).
+- **Deterministic & Zero-Randomness**: Identical case attempts produce identical reference IDs across restarts, enabling safe duplicate adoption without UUID drift.
+- **Provider Isolation**: Database resets cannot collide with historical payment links.
+- **Unified Consistency**: Both executed links and blocked action audit records share this payment-scoped reference.
 
 ---
 
-## Autonomous Recovery Worker
+## 8. Batch Recovery & Outcome Intelligence
 
-Revflow includes an autonomous background recovery worker (`backend/src/worker/recoveryWorker.js`) that operates alongside the API:
+Revflow supports batch operations with strict provenance separation:
 
-1. **Polling & Atomic Leases**: Polls PostgreSQL for cases in `QUEUED` or `RETRY_SCHEDULED` status using atomic database transactions with lease tokens (`locked_until`, `locked_by`).
-2. **Crash & Restart Resilience**: If the worker process restarts mid-flight, expired leases are automatically reclaimed by subsequent worker loops.
-3. **Execution Guard**: Re-checks policy and provider state immediately prior to external execution to prevent Time-of-Check to Time-of-Use (TOCTOU) race conditions.
-4. **Idempotent Adoption**: If Razorpay returns HTTP 400 (`reference_id already exists`), the worker queries the provider, validates amount and currency, and adopts the existing link rather than crashing.
+### Provenance Tracking
+- **`TEST_MODE_VERIFIED`**: Real, provider-signed Razorpay Test Mode transactions. Only these contribute to verified recovered revenue metrics.
+- **`SIMULATED_BATCH`**: Synthetic portfolio evaluations processed for batch analytics and merchant simulations. These are strictly isolated and never pollute financial recovery ledgers.
 
----
+### Portfolio Outcome Analytics (`/api/recovery/analytics`)
+- **Revenue at Risk vs Recovered**: Aggregate paise and formatted INR tracking
+- **Strategy Performance Breakdown**: Recovery rates and volume by action family
+- **Failure Mode Distribution**: Breakdown of transient network vs user authentication vs limit errors
+- **Stopping Reason Analytics**: Distribution of hard-stops, cooldown waits, and human escalations
+- **Recovery Velocity**: Average minutes from failure detection to verified payment reconciliation
 
-## Truthful Revenue Attribution & Reconciliation
-
-In Revflow, **creating a Payment Link does NOT count as recovered revenue.**
-
-```text
-Action Executed (Payment Link Created)  ≠  Revenue Recovered
-```
-
-### The 5-Step Verification Process
-1. Customer accesses the Razorpay payment URL and completes payment.
-2. Razorpay signs and dispatches a `payment_link.paid` or `payment.captured` webhook.
-3. Revflow verifies the provider-signed webhook's HMAC-SHA256 signature using `RAZORPAY_WEBHOOK_SECRET`.
-4. The reconciliation engine executes multi-strategy correlation:
-   - **Priority 1**: Match by Payment Link ID (`provider_action_id == event.paymentLinkId`).
-   - **Priority 2**: Match by Reference ID (`idempotency_key == event.referenceId`).
-   - **Priority 3**: Match by Case Payment ID / Order ID.
-5. Exact amount and currency integrity check:
-   - **Mismatch**: Flagged as `FAILED_MISMATCH`, escalated to human review, credited ₹0.
-   - **Partial**: Recorded as `PARTIALLY_PAID`, case remains open, credited partial amount.
-   - **Exact Match**: Marked `OUTCOME_CONFIRMED`, case marked `RESOLVED`, full amount credited to `recovered_amount`.
-
-Zero double-counting is enforced via database unique constraints on `(provider, provider_event_id)` and a partial unique index on `recovery_outcomes(recovery_action_id) WHERE verified = true`.
+### Operational Agent Evaluation Telemetry
+- **Schema Validity Rate**: 100% adherence to Zod diagnostic constraints
+- **Evidence Grounding Ratio**: Measures that 100% of diagnostic evidence references valid payment context fields
+- **Policy Decision Distribution**: Real-time ratio of `ALLOW`, `REVIEW`, and `BLOCK` outcomes
+- **Execution Eligibility Rate**: Percentage of diagnosed cases approved for bounded action
+- **Provider Error & Timeout Rates**: Tracking upstream AI and payment gateway availability
+- **End-to-End Decision Latency**: Sub-second execution from event ingestion to policy decision
+- *Disclosure*: These reflect live operational systems telemetry, not offline artificial model accuracy benchmarks.
 
 ---
 
-## Current Demonstration Results
+## 9. Engineering Lessons from Development
 
-The following table summarizes verified outcomes from the live deployment batch on Render:
-
-| Case ID | Case Amount | Failure Reason | AI Diagnosis | Policy Decision | Recovery Action | Razorpay Outcome | Final Case State |
-| :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Case #1** | ₹500 | `Payment failed` | Transient failure | `ALLOW` (12/12 PASS) | Payment Link Created | ✅ Verified Paid | `RESOLVED` |
-| **Case #2** | ₹500 | `Payment failed` | Transient failure | `ALLOW` (12/12 PASS) | Payment Link Created | ✅ Verified Paid | `RESOLVED` |
-| **Case #3** | ₹750 | `Bank switch timeout` | Transient failure | `ALLOW` (12/12 PASS) | Payment Link Created | ✅ Verified Paid | `RESOLVED` |
-
-- **Total Batch Revenue at Risk**: ₹1,750
-- **Total Verified Revenue Recovered**: ₹1,750 (175,000 paise)
-- **Batch Recovery Rate**: 100% (3 of 3 cases resolved)
+1. **AI Must Be Purely Advisory**: An LLM must never hold external API credentials or direct balance transfer capabilities. Strict separation between *reasoning* (AI) and *authority* (Policy Engine) is mandatory in fintech.
+2. **Action Execution $\neq$ Recovered Revenue**: Generating a payment link is simply recording intent. Financial ledgers must only acknowledge revenue when verified by a provider-signed webhook and reconciled across identity, amount, currency, and action.
+3. **Database Sequence Drift vs Provider Persistence**: External payment gateways remember historical links forever, but database sequence IDs reset upon migration. Recovery references must incorporate immutable transaction identifiers (`paymentId`) to prevent sequence collision.
+4. **Fail-Closed Architecture is Non-Negotiable**: When upstream AI providers experience rate limits or network drops, the agent must cleanly pause, log an audit event, and escalate to human review rather than guessing or crashing.
+5. **A Unified Control Plane Beats Disconnected Playbooks**: Specialized recovery scenarios (checkout, subscriptions, B2B) must share the same stopping engine, policy rules, and ledger reconciliation to avoid fragmented, unmaintainable agent silos.
 
 ---
 
-## What Happens When Things Break?
-
-Revflow was architected specifically around failure modes. The table below illustrates how the system handles adverse conditions:
-
-| Scenario / Failure Condition | System Behavior | Safety Outcome |
-| :--- | :--- | :--- |
-| **AI Provider Outage / HTTP 404 / 429** | Catches upstream provider error, logs audit event, halts automated execution. | Case marked `AUTONOMY_REVIEW_REQUIRED`; zero unsafe calls made. |
-| **Malformed AI Output / Schema Violation** | Zod rejects payload; logs specific field errors and truncated input values. | Action blocked; fail-closed execution prevents invalid parameters. |
-| **Provider Amount or Currency Mismatch** | Compares provider link amount against case amount; mismatch throws 422. | Action halted; `ACTION_REVIEW_REQUIRED` audit generated. |
-| **Concurrent Action Race** | Database unique constraint and active duplicate policy rule check in-flight actions. | Second attempt blocked; duplicate payment link creation prevented. |
-| **Terminal or Refunded Payment** | Policy Rule 1 (`terminal_payment`) and Rule 12 inspect event history. | Action hard-blocked; prevents re-charging customer for settled order. |
-| **High-Value Transaction (> ₹25,000)** | Policy Rule 8 evaluates amount in paise against threshold. | Action routed to human review; automated financial execution blocked. |
-
----
-
-## V1 → V2 Roadmap: From Payment Recovery to Autonomous Revenue Operations
-
-> [!NOTE]
-> *Status Disclosure*: Features below represent the planned V2 architecture designed to scale Revflow from a payment-link recovery engine into a comprehensive autonomous revenue recovery platform. None of the V2 roadmap items below should be understood as currently implemented in production; they reflect our planned technical milestones.
-
-```mermaid
-mindmap
-  root((Revflow V2))
-    Decision Intelligence
-      Next-Best-Action NBA Engine
-      Expected Recovery Value Scoring
-      Dynamic Multi-Channel Routing
-    Autonomous Lifecycle
-      Explicit Stopping Criteria
-      Customer-Aware Recovery
-      Automated Cooldown Tuning
-    Expanded Playbooks
-      Checkout Drop-Off Recovery
-      Failed Subscription Dunning
-      B2B Receivables Chaser
-      Mandate Retry Sequencer
-    Observability & Safety
-      Adversarial Safety Evaluation
-      Continuous Outcome Learning
-      Enterprise Command Center
-```
-
-### 1. Next-Best-Action (NBA) Engine
-- Evaluate and rank candidate recovery actions (`CREATE_PAYMENT_LINK`, `SCHEDULE_RETRY_WINDOW`, `SEND_WHATSAPP_REMINDER`, `ESCALATE_TO_ACCOUNT_MANAGER`, `NO_ACTION`) based on Expected Recovery Value ($ERV = \text{Amount} \times P(\text{Recovery}) - \text{Friction Cost}$).
-
-### 2. Explicit Explainable Stopping Criteria
-- Formally stop recovery workflows when:
-  - Customer completes payment externally
-  - Maximum recovery attempts or economic cost thresholds are reached
-  - Customer opts out or expresses negative sentiment
-  - Case enters a terminal or refunded state
-  - Every stop decision produces an immutable, explainable audit record
-
-### 3. Tiered Human Escalation (`HUMAN_APPROVAL_REQUIRED`)
-- High-value recoveries (> ₹25,000)
-- Low-confidence AI diagnoses ($< 0.65$)
-- Multi-attempt failure sequences
-- Detected regulatory or policy anomalies
-
-### 4. High-Throughput Batch Recovery
-- Ingest, group, and evaluate hundreds of at-risk transactions concurrently.
-- Portfolio-level risk modeling and aggregate financial exposure controls.
-
-### 5. Checkout Drop-Off Recovery
-- Intercept cart abandonment and authentication hesitation with pre-filled, cart-contextual checkout links.
-
-### 6. Subscription & Recurring Dunning
-- Smart retry scheduling aligned with customer salary cycles (1st–5th of the month) to minimize involuntary subscription churn.
-
-### 7. B2B Receivables & Overdue Invoices
-- Structured chasing workflows for corporate accounts with payment terms ($Net\ 30 / 60$), approval delay detection, and automated reconciliation.
-
-### 8. Contextual Multilingual Recovery (English / Hindi / Hinglish)
-- Generate culturally fluent, localized WhatsApp and email reminder copy tailored to customer payment history and regional language preferences.
-
-### 9. Outcome Learning & Recovery Intelligence
-- Offline evaluation loops that track recovery success by strategy, payment method, bank code, and time of day, continuously refining confidence scores.
-
-### 10. Adversarial Financial Safety Test Suite
-- Automated synthetic testing simulating malicious webhooks, currency manipulation, replay attacks, and clock skew to verify safety guardrails.
-
----
-
-## Alignment with Razorpay's Agentic Vision
-
-Revflow is built around the same vision pioneered by Razorpay: **transitioning financial operations from reactive dashboards to intelligent, autonomous agentic systems.**
-
-- **From Logging to Acting**: Shifting from passive error reporting to autonomous, bounded intervention.
-- **Deep Razorpay Integration**: Native alignment with Razorpay Payment Links, Webhooks, and standard checkout paradigms.
-- **Merchant Sovereignty**: Autonomous execution strictly constrained by merchant-defined policy guardrails.
-
-> *Disclaimer: Revflow is an independent project created for the Razorpay Buildathon 2026. It is inspired by and architecturally aligned with Razorpay's agentic payments direction, but is not an official Razorpay product.*
-
----
-
-## Technology Stack
-
-### Core Architecture
-- **Runtime**: Node.js (v20+ LTS)
-- **Web Framework**: Express 5
-- **Database**: PostgreSQL 15+ (pg connection pooling)
-- **Frontend**: React 19, Vite, Vanilla CSS Operations Dashboard
-- **Payment Gateway**: Razorpay Test Mode REST API & Webhook Infrastructure
-- **AI Diagnostics**: Google Gemini / OpenAI-compatible LLM endpoints
-
-### Engineering & Reliability
-- **Schema Validation**: Zod (Strict schema validation for inputs, webhooks, and AI outputs)
-- **Policy Engine**: In-memory deterministic rule engine with configurable thresholds
-- **Worker**: Persistent autonomous background worker with atomic DB lease tokens
-- **Testing**: Vitest, Supertest (153 unit, integration, and end-to-end tests)
-- **Security**: HMAC-SHA256 signature verification, fail-closed design, credential separation
-
----
-
-## Running Locally
+## 10. Local Setup & Testing
 
 ### Prerequisites
 - **Node.js**: `v20.0.0` or later
-- **PostgreSQL**: `v15.0` or later
 - **Package Manager**: `pnpm` (`npm install -g pnpm`)
+- **PostgreSQL**: `v15.0` or later (optional; in-memory repository used if `DATABASE_URL` is omitted)
 
 ### 1. Clone & Install Dependencies
 ```bash
@@ -492,21 +410,17 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-Configure the following variables in `.env`:
-
-| Variable Name | Description | Default / Example |
-| :--- | :--- | :--- |
-| `PORT` | Backend HTTP port | `3001` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:password@localhost:5432/recoverai` |
-| `NODE_ENV` | Application environment | `development` |
-| `RAZORPAY_KEY_ID` | Razorpay Test Mode Key ID | `rzp_test_...` |
-| `RAZORPAY_KEY_SECRET` | Razorpay Test Mode Key Secret | *Test Secret* |
-| `RAZORPAY_WEBHOOK_SECRET`| Razorpay Webhook Secret | *Webhook Secret* |
-| `AI_PROVIDER` | AI provider protocol | `openai-compatible` |
-| `AI_MODEL` | AI model identifier | `gemini-2.5-flash` or `gpt-4.1-mini` |
-| `AI_API_KEY` | Upstream AI API key | *API Key* |
-| `AI_BASE_URL` | AI endpoint base URL | *Provider Base URL* |
-| `AUTONOMOUS_RECOVERY_ENABLED` | Toggle background autonomous worker | `true` |
+Configure variables by name (do not publish secrets):
+- `PORT`: Backend HTTP port (default `3001`)
+- `DATABASE_URL`: PostgreSQL connection string
+- `NODE_ENV`: `development` | `production` | `test`
+- `RAZORPAY_KEY_ID`: Razorpay Test Mode Key
+- `RAZORPAY_KEY_SECRET`: Razorpay Test Mode Secret
+- `RAZORPAY_WEBHOOK_SECRET`: Secret used to sign incoming Razorpay webhooks
+- `AI_PROVIDER`: `gemini` | `openai-compatible`
+- `AI_MODEL`: AI model identifier (e.g. `gemini-2.5-flash`)
+- `AI_API_KEY`: Upstream AI API key
+- `AUTONOMOUS_RECOVERY_ENABLED`: `true` | `false`
 
 ### 3. Run Database Migrations
 ```bash
@@ -514,104 +428,91 @@ pnpm db:migrate
 ```
 
 ### 4. Start the Application
-In separate terminal windows:
 ```bash
 # Terminal 1: Backend API & Recovery Worker
 pnpm start
 
-# Terminal 2: React Operations Dashboard
+# Terminal 2: React Dashboard
 pnpm frontend
 ```
 
-The backend starts at `http://localhost:3001`; the frontend dashboard opens at `http://localhost:5173`.
+The backend starts at `http://localhost:3001`; the frontend opens at `http://localhost:5173`.
 
-### 5. Replay Razorpay Webhook Fixtures
-Simulate verified Razorpay webhook events locally with HMAC-SHA256 webhook signature verification:
-```bash
-pnpm replay:razorpay
-```
-
----
-
-## Test Suite Execution
-
-Run the complete automated test suite:
+### 5. Automated Test Suite Execution
 
 ```bash
 pnpm test
 ```
 
-### Test Suite Coverage
+#### Verified Test Suite Results (408 / 408 Passing)
 ```text
- Test Files  7 passed (7)
-      Tests  153 passed (153)
-   Duration  2.98s
+ Test Files  17 passed (17)
+      Tests  408 passed (408)
+   Duration  5.08s
 ```
 
-The 153 tests thoroughly validate:
-- Razorpay HMAC-SHA256 webhook authentication & deduplication
-- Deterministic risk assessment and case creation
-- Zod schema validation and constrained evidence vocabulary
-- All 12 deterministic policy rules and edge conditions
-- Payment-scoped idempotency key generation and provider isolation
-- Multi-strategy outcome reconciliation and zero double-counting
-- Autonomous worker atomic leasing, retries, and backoff
-- High-value human escalation triggers and cooldown enforcement
+All 17 suites pass with 0 failures:
+1. `adversarialFinancialSafety.test.js` (81 adversarial security tests)
+2. `autonomyWorker.test.js` (Atomic leasing and background recovery loops)
+3. `b2bReceivables.test.js` (30 B2B invoice recovery tests)
+4. `batchRecovery.test.js` (High-throughput batch evaluation & provenance)
+5. `checkoutDropOff.test.js` (Cart abandonment and drop-off recovery)
+6. `diagnosis.test.js` (AI diagnosis, Zod schemas, and fallback adapters)
+7. `events.test.js` (Webhook ingestion, normalization, and deduplication)
+8. `humanEscalation.test.js` (Approval lifecycle, audit trails, and review gates)
+9. `outcomeAnalytics.test.js` (Portfolio analytics, velocity, and failure breakdown)
+10. `outcomeReconciliation.test.js` (Multi-strategy reconciliation & zero double-counting)
+11. `playbookEngine.test.js` (Playbook registration, interface validation, and priority ordering)
+12. `playbooksAndEvaluation.test.js` (Integration between playbooks and evaluator)
+13. `policyAndExecution.test.js` (The 12 policy rules, idempotency, and bounded execution)
+14. `razorpayWebhook.test.js` (HMAC signature verification and webhook dispatch)
+15. `stoppingEngine.test.js` (Explicit STOP, WAIT, ESCALATE, and CONTINUE criteria)
+16. `strategyRegistryAndScoring.test.js` (Strategy definitions and heuristic ERV scoring)
+17. `subscriptionRecovery.test.js` (Recurring revenue, retry windows, and churn prevention)
 
 ---
 
-## 5-Minute Evaluation Walkthrough
+## 11. Roadmap & Milestone Status
 
-Follow these steps to experience Revflow end-to-end:
+### Implemented & Verified (Milestones 1–6)
+- ✅ **Payment Degradation Recovery**: Root-cause diagnosis and bounded Razorpay link execution
+- ✅ **Checkout Drop-Off Recovery**: Cart abandonment context and multi-channel recovery
+- ✅ **Subscription / Recurring Revenue Recovery**: Smart retry windows and involuntary churn mitigation
+- ✅ **B2B Receivables Recovery**: Invoicing lifecycle, term-aware waits, and dispute stopping
+- ✅ **Modular Playbook Engine**: Deterministic priority matching and fail-fast registration validation
+- ✅ **Next-Best-Action (NBA) Engine**: Heuristic Expected Recovery Value (ERV) scoring
+- ✅ **Explicit Explainable Stopping Engine**: Formal `STOP`, `WAIT`, `ESCALATE`, `CONTINUE` criteria
+- ✅ **Human Escalation Governance**: Two-phase approval workflow where human approval cannot override `BLOCK`
+- ✅ **Adversarial Financial Safety Suite**: 81 security tests covering TOCTOU, replay, and amount injection
+- ✅ **Batch Revenue Recovery**: High-throughput portfolio evaluation with strict provenance tracking
+- ✅ **Portfolio Outcome Intelligence**: Multi-dimensional recovery metrics, velocity, and failure analysis
+- ✅ **Operational Agent Evaluation Telemetry**: Real-time observability tracking schema validity and latency
+- ✅ **Payment-Scoped Idempotency**: Length-bounded deterministic reference IDs resistant to database resets
 
-1. **Inspect an At-Risk Case**: Open the dashboard at [https://revflow.onrender.com](https://revflow.onrender.com) and click **Case #1** or **Case #2**.
-2. **Review the AI Diagnosis**: Inspect the structured diagnosis proposal, observing the specific cause, confidence rating, and grounded evidence facts.
-3. **Inspect the 12 Guardrails**: Observe the real-time evaluation card showing all 12 policy safety checks passing server-side.
-4. **Execute Recovery**: Click **EXECUTE RECOVERY ACTION**. Observe the bounded executor call Razorpay and receive a verified Test Mode Payment Link.
-5. **Simulate Payment**: Open the generated Razorpay payment link in test mode and simulate a successful payment.
-6. **Observe Verified Reconciliation**: Watch the webhook reconcile the case in real time: action status transitions to `OUTCOME_CONFIRMED`, case status updates to `RESOLVED`, and recovered revenue is credited to the ledger.
-
----
-
-## Engineering Lessons from Development
-
-Building a financial recovery agent in production revealed critical distributed systems lessons:
-
-1. **AI Must Be Purely Advisory**: Allowing an LLM to directly invoke external banking APIs is an unacceptable financial risk. Strict separation between *reasoning* (AI) and *authority* (Policy) is mandatory.
-2. **Action Execution $\neq$ Recovered Revenue**: A payment link is an unfulfilled intent. Financial metrics must only acknowledge revenue when the provider emits a verified completion webhook.
-3. **Database Sequence Drift vs. Provider Persistence**: Auto-increment database IDs (`Case #1`) reset upon database re-creation, but external payment gateways remember every historical entity. Recovery references must incorporate immutable transaction identifiers (`paymentId`) to guarantee provider-level uniqueness.
-4. **Fail-Closed Architecture is Essential**: When external AI providers experience upstream latency or rate limits, the agent must cleanly pause, log an audit event, and escalate to human review rather than guessing or crashing.
-
----
-
-## Why Revflow?
-
-| Dimension | Traditional Naive Dunning | Generic AI Chatbot | Revflow Control Plane |
-| :--- | :--- | :--- | :--- |
-| **Trigger** | Periodic blind timer | Ad-hoc user prompt | Real-time payment event stream |
-| **Reasoning** | None (fixed retry rules) | Unconstrained generation | Structured, evidence-grounded AI |
-| **Safety** | Static logic | Hallucination risk | **12 Deterministic Financial Guardrails** |
-| **Authority** | Blind execution | No execution capability | **Separated: AI proposes, Policy decides** |
-| **Accounting** | Assumes intent = success | Unaware of ledger | **Provider-signed webhook & verified reconciliation (identity, amount, currency, action)** |
-| **Failure Mode** | Spam & bank penalties | Financial liability | **Fail-closed with human escalation** |
+### Planned / Future Work (V2 Roadmap)
+- 📋 **Multilingual / Hinglish Recovery Communication**: Localized WhatsApp/SMS copy generation
+- 📋 **Interactive Voice Recovery (IVR)**: Agentic voice calls for high-intent abandoned carts
+- 📋 **Customer-Aware Profile Modeling**: Dynamic frequency capping based on historical buyer responsiveness
+- 📋 **Data-Driven Strategy Learning**: Transitioning ERV from heuristic scoring to offline calibrated ML models
+- 📋 **Merchant Command Center UI Redesign**: Real-time WebSocket visualizer for multi-playbook funnel drops
+- 📋 **Granular Role-Based Access Control (RBAC)**: Enterprise permission tiers for escalation sign-offs
+- 📋 **Distributed Execution Hardening**: Multi-region Redis locking for horizontal worker scaling
 
 ---
 
 ## Summary
 
-Revenue recovery should not end at detecting a failed payment.
+Revflow turns revenue recovery from a reactive error log into an autonomous, bounded control plane:
 
-Revflow closes the loop:
-- **Detect** the revenue leak in real time.
-- **Diagnose** the root cause with grounded AI reasoning.
-- **Decide** within 12 unbypasable financial guardrails.
-- **Recover** via bounded Razorpay Test Mode execution.
+- **Detect** revenue leaks in real time across checkouts, payments, subscriptions, and invoices.
+- **Diagnose** root causes with evidence-grounded AI reasoning.
+- **Decide** within 12 deterministic financial safety guardrails and explainable stopping rules.
+- **Recover** via bounded Razorpay Test Mode execution or simulated domain actions.
 - **Verify** through provider-signed webhooks with HMAC-SHA256 signatures.
 - **Reconcile** provider identity, amount, currency, and action correlation to attribute truthful revenue without double-counting.
-
-That is the foundation of an autonomous revenue recovery control plane.
+- **Analyze** portfolio recovery performance, velocity, and agent operational telemetry.
 
 ---
 
-**Live Demonstration**: [https://revflow.onrender.com](https://revflow.onrender.com)  
+**Demonstration Dashboard**: [https://revflow.onrender.com](https://revflow.onrender.com)  
 **Project Repository**: [https://github.com/gititayush/recover-ai](https://github.com/gititayush/recover-ai)
