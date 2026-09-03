@@ -1,19 +1,21 @@
-const { PlaybookEngine, defaultEngine, playbookEngine } = require('../src/playbooks/playbookEngine');
+const { PlaybookEngine, PlaybookRegistrationError, defaultEngine, playbookEngine } = require('../src/playbooks/playbookEngine');
 const paymentDegradationPlaybook = require('../src/playbooks/modules/paymentDegradation');
 const checkoutDropOffPlaybook = require('../src/playbooks/modules/checkoutDropOff');
+const failedSubscriptionPlaybook = require('../src/playbooks/modules/failedSubscription');
+const b2bReceivablesPlaybook = require('../src/playbooks/modules/b2bReceivables');
 const { STRATEGY_DEFINITIONS, EXECUTION_MODES, getStrategy } = require('../src/strategies/strategyRegistry');
 const { evaluateCandidates } = require('../src/ai/interventionEvaluator');
 const { evaluateStoppingCriteria } = require('../src/policy/stoppingEngine');
 const { evaluatePolicy } = require('../src/policy/policyEngine');
 
-describe('Revflow V2 — Playbook Engine Coordinator', () => {
+describe('Revflow V2 — Playbook Engine Coordinator & Extensibility', () => {
   let engine;
 
   beforeEach(() => {
     engine = new PlaybookEngine();
   });
 
-  // Test 1
+  // Test 1: payment.failed matches payment_degradation
   it('1. payment.failed matches payment_degradation', () => {
     const event = {
       eventId: 'evt_pay_fail_01',
@@ -28,7 +30,7 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     expect(playbook.flagship).toBe(true);
   });
 
-  // Test 2
+  // Test 2: checkout event matches checkout_drop_off
   it('2. checkout event matches checkout_drop_off', () => {
     const checkoutEvents = [
       { eventId: 'evt_chk_01', eventType: 'checkout.payment_step_reached', paymentId: 'chk_sess_01', amount: 250000, currency: 'INR' },
@@ -43,7 +45,7 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     }
   });
 
-  // Test 3
+  // Test 3: unknown event falls back safely to payment_degradation
   it('3. unknown event falls back safely to payment_degradation', () => {
     const unknownEvents = [
       null,
@@ -59,17 +61,23 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     }
   });
 
-  // Test 4
+  // Test 4: correct playbook selected with custom registration and priority
   it('4. correct playbook selected with custom registration and priority', () => {
     expect(engine.list().map((p) => p.id)).toContain('payment_degradation');
     expect(engine.list().map((p) => p.id)).toContain('checkout_drop_off');
+    expect(engine.list().map((p) => p.id)).toContain('failed_subscription');
+    expect(engine.list().map((p) => p.id)).toContain('b2b_receivables');
 
-    // Register a mock custom playbook
+    // Register a valid custom playbook
     const customPlaybook = {
       id: 'custom_domain_playbook',
       name: 'Custom Domain Playbook',
+      domain: 'Custom Telemetry Domain',
       matchesEvent: (e) => e?.eventType === 'custom.domain.event',
-      assessRisk: () => ({ actionable: false })
+      assessRisk: () => ({ actionable: false }),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NO_ACTION'],
+      priority: 200
     };
     engine.register(customPlaybook);
 
@@ -80,7 +88,7 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     expect(engine.identifyPlaybook({ eventType: 'payment.failed' }).id).toBe('payment_degradation');
   });
 
-  // Test 5
+  // Test 5: context extraction un-hallucinated facts
   it('5. playbook context extraction returns strict, un-hallucinated facts', () => {
     const event = {
       eventId: 'evt_chk_ctx_01',
@@ -122,7 +130,7 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     expect(context.abandonmentReason).toBe('customer hesitated during OTP entry');
   });
 
-  // Test 6
+  // Test 6: candidate strategy generation integrates with Strategy Registry
   it('6. candidate strategy generation integrates with Strategy Registry', () => {
     const context = {
       playbook: 'checkout_drop_off',
@@ -140,7 +148,6 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
       'NO_ACTION'
     ]);
 
-    // Ensure all returned candidate actions exist in STRATEGY_DEFINITIONS
     for (const action of candidateActions) {
       const strategy = getStrategy(action);
       expect(strategy).toBeDefined();
@@ -148,7 +155,7 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     }
   });
 
-  // Test 7
+  // Test 7: execution modes are strictly preserved
   it('7. execution modes are strictly preserved across candidate strategies', () => {
     const strategies = engine.getCandidateActions({ playbook: 'checkout_drop_off' });
 
@@ -171,9 +178,8 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     }
   });
 
-  // Test 8
+  // Test 8: reuses common control plane
   it('8. reuses common control plane without parallel policy or AI architecture', () => {
-    // 1. Reuses shared intervention evaluator
     const context = {
       amount: 250000,
       currency: 'INR',
@@ -186,7 +192,6 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     expect(evaluated.some((c) => c.action === 'CREATE_PAYMENT_LINK')).toBe(true);
     expect(evaluated.some((c) => c.action === 'CHECKOUT_RECOVERY')).toBe(true);
 
-    // 2. Reuses common stopping engine
     const stoppingCase = {
       riskStatus: 'RESOLVED',
       outcome: 'PAID',
@@ -196,7 +201,6 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     expect(stopping.stopped).toBe(true);
     expect(stopping.actionDisposition).toBe('HARD_STOP');
 
-    // 3. Reuses common policy engine
     const policyDecision = evaluatePolicy({
       recoveryCase: { id: 1, paymentId: 'pay_common_ctrl_001', amount: 250000, currency: 'INR', riskStatus: 'RECOVERABLE' },
       diagnosis: { diagnosis: { confidence: 0.85 } },
@@ -205,5 +209,141 @@ describe('Revflow V2 — Playbook Engine Coordinator', () => {
     });
     expect(policyDecision.policyVersion).toBe('recoverai-policy-v1');
     expect(policyDecision.decision).toBe('ALLOW');
+  });
+
+  // Test 9: registration rejects non-object or null playbook
+  it('9. registration rejects non-object or null playbook', () => {
+    expect(() => engine.register(null)).toThrow(PlaybookRegistrationError);
+    expect(() => engine.register(undefined)).toThrow(PlaybookRegistrationError);
+    expect(() => engine.register('not-an-object')).toThrow(PlaybookRegistrationError);
+  });
+
+  // Test 10: registration rejects missing or empty ID
+  it('10. registration rejects missing or empty playbook ID', () => {
+    expect(() => engine.register({})).toThrow(PlaybookRegistrationError);
+    expect(() => engine.register({ id: '' })).toThrow(PlaybookRegistrationError);
+    expect(() => engine.register({ id: '   ' })).toThrow(PlaybookRegistrationError);
+  });
+
+  // Test 11: registration rejects duplicate playbook ID
+  it('11. registration rejects duplicate playbook ID', () => {
+    const duplicate = {
+      id: 'checkout_drop_off',
+      name: 'Duplicate Checkout',
+      domain: 'E-commerce',
+      matchesEvent: () => false,
+      assessRisk: () => ({}),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NO_ACTION']
+    };
+    expect(() => engine.register(duplicate)).toThrow(PlaybookRegistrationError);
+    expect(() => engine.register(duplicate)).toThrow(/Duplicate playbook ID/);
+  });
+
+  // Test 12: registration rejects missing metadata
+  it('12. registration rejects missing name or domain metadata', () => {
+    const base = {
+      id: 'incomplete_meta',
+      matchesEvent: () => false,
+      assessRisk: () => ({}),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NO_ACTION']
+    };
+    expect(() => engine.register({ ...base, domain: 'Domain' })).toThrow(/missing a valid string "name"/);
+    expect(() => engine.register({ ...base, name: 'Name' })).toThrow(/missing a valid string "domain"/);
+  });
+
+  // Test 13: registration rejects missing required interface methods
+  it('13. registration rejects missing required interface methods', () => {
+    const base = {
+      id: 'missing_methods',
+      name: 'Missing Methods Playbook',
+      domain: 'Test Domain',
+      matchesEvent: () => false,
+      assessRisk: () => ({}),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NO_ACTION']
+    };
+
+    const methods = ['matchesEvent', 'assessRisk', 'extractContext', 'getCandidateActions'];
+    for (const method of methods) {
+      const copy = { ...base };
+      delete copy[method];
+      expect(() => engine.register(copy)).toThrow(new RegExp(`missing required interface method "${method}\\(\\)"`));
+    }
+  });
+
+  // Test 14: registration rejects unknown candidate strategies
+  it('14. registration rejects unknown candidate strategies', () => {
+    const invalidStrategyPlaybook = {
+      id: 'invalid_strategy_playbook',
+      name: 'Invalid Strategy Playbook',
+      domain: 'Test Domain',
+      matchesEvent: () => false,
+      assessRisk: () => ({}),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NON_EXISTENT_STRATEGY_XYZ']
+    };
+    expect(() => engine.register(invalidStrategyPlaybook)).toThrow(/references unknown strategy 'NON_EXISTENT_STRATEGY_XYZ'/);
+  });
+
+  // Test 15: registration enforces deterministic priority ordering
+  it('15. deterministic priority ordering resolves specialized playbooks before fallbacks', () => {
+    const highPriorityPlaybook = {
+      id: 'high_priority_specialist',
+      name: 'High Priority Specialist',
+      domain: 'Specialist Domain',
+      priority: 500,
+      matchesEvent: (e) => e?.eventType === 'shared.event',
+      assessRisk: () => ({ actionable: true }),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NO_ACTION']
+    };
+
+    const lowPriorityPlaybook = {
+      id: 'low_priority_specialist',
+      name: 'Low Priority Specialist',
+      domain: 'Specialist Domain',
+      priority: 200,
+      matchesEvent: (e) => e?.eventType === 'shared.event',
+      assessRisk: () => ({ actionable: true }),
+      extractContext: () => ({}),
+      getCandidateActions: () => ['NO_ACTION']
+    };
+
+    engine.register(lowPriorityPlaybook);
+    engine.register(highPriorityPlaybook);
+
+    const event = { eventType: 'shared.event', paymentId: 'p_shared' };
+    const matched = engine.identifyPlaybook(event);
+    expect(matched.id).toBe('high_priority_specialist');
+  });
+
+  // Test 16: all four standard playbooks satisfy registration interface invariants
+  it('16. all four core playbooks satisfy complete registration interface invariants', () => {
+    const playbooks = [
+      paymentDegradationPlaybook,
+      checkoutDropOffPlaybook,
+      failedSubscriptionPlaybook,
+      b2bReceivablesPlaybook
+    ];
+
+    for (const pb of playbooks) {
+      expect(pb.id).toBeDefined();
+      expect(typeof pb.name).toBe('string');
+      expect(typeof pb.domain).toBe('string');
+      expect(typeof pb.matchesEvent).toBe('function');
+      expect(typeof pb.assessRisk).toBe('function');
+      expect(typeof pb.extractContext).toBe('function');
+      expect(typeof pb.getCandidateActions).toBe('function');
+
+      const candidates = pb.getCandidateActions({});
+      expect(Array.isArray(candidates)).toBe(true);
+      expect(candidates.length).toBeGreaterThan(0);
+      for (const action of candidates) {
+        const strategy = getStrategy(action);
+        expect(strategy).toBeDefined();
+      }
+    }
   });
 });

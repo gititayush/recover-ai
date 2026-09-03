@@ -85,7 +85,7 @@ async function executePaymentLink(repository, {
   if (policyDecision.decision !== 'ALLOW') {
     const status = policyDecision.decision === 'REVIEW' ? 'REVIEW_REQUIRED' : 'BLOCKED';
     const auditType = policyDecision.decision === 'REVIEW' ? 'ACTION_REVIEW_REQUIRED' : 'ACTION_BLOCKED';
-    const idempotencyKey = `razorpay_case_${recoveryCase.id}_plink_attempt_${existingActions.length + 1}`;
+    const idempotencyKey = stableReferenceId;
 
     const blockedAction = await repository.createAction({
       recoveryCaseId: recoveryCase.id,

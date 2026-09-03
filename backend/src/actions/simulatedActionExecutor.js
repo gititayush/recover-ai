@@ -124,9 +124,11 @@ async function executeSimulatedAction(repository, {
     isSimulated: true,
     proposedNextStep: targetAction === 'SCHEDULE_RETRY_WINDOW'
       ? `Schedule secondary subscription auto-debit retry window at ${nextRetryTimestamp} (configurable merchant policy: +${retryDelayHours}h)`
-      : (targetAction === 'CHECKOUT_RECOVERY'
-          ? 'Preserve customer cart items and generate personalized recovery session link'
-          : (targetAction === 'CUSTOMER_OUTREACH' ? 'Dispatch customer reminder notification across verified channels' : 'Execute simulated advisory workflow')),
+      : (targetAction === 'INVOICE_REMINDER'
+          ? 'Issue structured corporate accounts receivable reminder referencing invoice payment terms'
+          : (targetAction === 'CHECKOUT_RECOVERY'
+              ? 'Preserve customer cart items and generate personalized recovery session link'
+              : (targetAction === 'CUSTOMER_OUTREACH' ? 'Dispatch customer reminder notification across verified channels' : 'Execute simulated advisory workflow'))),
     retrySchedule: targetAction === 'SCHEDULE_RETRY_WINDOW' ? {
       attemptNumber,
       nextRetryAt: nextRetryTimestamp,
@@ -137,7 +139,8 @@ async function executeSimulatedAction(repository, {
       caseId: recoveryCase.id,
       amount: recoveryCase.amount,
       currency: recoveryCase.currency,
-      customerReference: recoveryCase.customerReference
+      customerReference: recoveryCase.customerReference,
+      invoiceId: targetAction === 'INVOICE_REMINDER' ? recoveryCase.paymentId : undefined
     }
   };
 

@@ -1,3 +1,5 @@
+const { playbookEngine } = require('../playbooks/playbookEngine');
+
 function latestEvent(events, eventType) {
   return [...events].reverse().find((event) => event.eventType === eventType) || null;
 }
@@ -5,6 +7,8 @@ function latestEvent(events, eventType) {
 function buildCaseContext(detail, now = new Date()) {
   const { recoveryCase, events = [] } = detail;
   const lastEvent = events.at(-1) || null;
+  const activePlaybook = playbookEngine.identifyPlaybook(lastEvent || { playbook: recoveryCase?.playbook });
+  const playbook = activePlaybook?.id || 'payment_degradation';
   const lastFailure = latestEvent(events, 'payment.failed');
   const failureCount = events.filter((event) => event.eventType === 'payment.failed').length;
 
@@ -16,7 +20,11 @@ function buildCaseContext(detail, now = new Date()) {
   const lastSubscriptionFailure = latestEvent(events, 'subscription.renewal_failed')
     || (lastEvent?.eventType?.startsWith('subscription.') ? lastEvent : null);
 
-  const lastActionable = lastFailure || lastDropOff || lastSubscriptionFailure;
+  const lastInvoiceFailure = latestEvent(events, 'invoice.payment_failed')
+    || latestEvent(events, 'invoice.overdue')
+    || (lastEvent?.eventType?.startsWith('invoice.') ? lastEvent : null);
+
+  const lastActionable = lastFailure || lastDropOff || lastSubscriptionFailure || lastInvoiceFailure;
 
   const timeSinceFailureMinutes = lastActionable
     ? Math.max(0, Math.floor((now.getTime() - new Date(lastActionable.timestamp || lastActionable.occurredAt).getTime()) / 60000))
@@ -26,7 +34,8 @@ function buildCaseContext(detail, now = new Date()) {
     ['captured', 'paid', 'authorized'].includes(event.paymentStatus) ||
     event.eventType === 'order.paid' ||
     event.eventType === 'checkout.completed' ||
-    event.eventType === 'subscription.charged'
+    event.eventType === 'subscription.charged' ||
+    event.eventType === 'invoice.paid'
   );
   const hasOrder = Boolean(recoveryCase.orderId || events.some((event) => Boolean(event.orderId)));
 
@@ -45,10 +54,13 @@ function buildCaseContext(detail, now = new Date()) {
     || lastSubscriptionFailure?.failureReason
     || lastSubscriptionFailure?.rawPayload?.failureReason
     || lastSubscriptionFailure?.rawPayload?.mandateFailureReason
+    || lastInvoiceFailure?.failureReason
+    || lastInvoiceFailure?.rawPayload?.failureReason
     || recoveryCase.riskReason
     || null;
 
   return {
+    playbook,
     caseId: recoveryCase.id,
     amount: recoveryCase.amount,
     currency: recoveryCase.currency,
@@ -56,7 +68,7 @@ function buildCaseContext(detail, now = new Date()) {
     riskLevel: recoveryCase.riskLevel,
     riskReason: recoveryCase.riskReason,
     paymentStatus: lastEvent?.paymentStatus || null,
-    orderStatus: events.some((event) => event.eventType === 'order.paid' || event.eventType === 'checkout.completed' || event.eventType === 'subscription.charged') ? 'paid' : null,
+    orderStatus: events.some((event) => event.eventType === 'order.paid' || event.eventType === 'checkout.completed' || event.eventType === 'subscription.charged' || event.eventType === 'invoice.paid') ? 'paid' : null,
     failureReason,
     errorCode,
     paymentAttemptCount: failureCount,

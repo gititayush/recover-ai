@@ -68,6 +68,16 @@ function getActionDefinition(action, context, baseProb) {
         interventionCost: 100,
         estimatedFriction: Math.round(context.amount * 0.02)
       };
+    case 'INVOICE_REMINDER':
+      return {
+        action: 'INVOICE_REMINDER',
+        executionMode,
+        isLiveExecutable,
+        strategyDescription,
+        estimatedProbability: Math.min(0.65, baseProb + 0.05),
+        interventionCost: 300,
+        estimatedFriction: Math.round(context.amount * 0.04)
+      };
     case 'DISPATCH_VERNACULAR_ASSIST':
       return {
         action: 'DISPATCH_VERNACULAR_ASSIST',
@@ -116,16 +126,16 @@ function evaluateCandidates(context, category = null) {
   const probability = baseProbability(context);
 
   let allowedActions;
-  if (category && CATEGORY_ALLOWED_ACTIONS[category]) {
-    allowedActions = CATEGORY_ALLOWED_ACTIONS[category];
+  if (context.playbook === 'b2b_receivables') {
+    allowedActions = ['INVOICE_REMINDER', 'CREATE_PAYMENT_LINK', 'CUSTOMER_OUTREACH', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else if (context.playbook === 'failed_subscription' || context.playbook === 'mandate_retry') {
     allowedActions = ['SCHEDULE_RETRY_WINDOW', 'CREATE_PAYMENT_LINK', 'CUSTOMER_OUTREACH', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+  } else if (category && CATEGORY_ALLOWED_ACTIONS[category]) {
+    allowedActions = CATEGORY_ALLOWED_ACTIONS[category];
   } else if (context.playbook === 'hinglish_voice_recovery') {
     allowedActions = ['DISPATCH_VERNACULAR_ASSIST', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else if (context.playbook === 'promise_to_pay') {
     allowedActions = ['RECORD_PROMISE_TO_PAY', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
-  } else if (context.playbook === 'b2b_receivables') {
-    allowedActions = ['REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else {
     allowedActions = ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   }

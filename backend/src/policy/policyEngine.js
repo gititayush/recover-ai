@@ -9,7 +9,7 @@ const { playbookEngine } = require('../playbooks/playbookEngine');
 
 const POLICY_VERSION = 'recoverai-policy-v1';
 const ALLOWED_ACTIONS = ['CREATE_PAYMENT_LINK'];
-const SIMULATED_ACTIONS = ['CHECKOUT_RECOVERY', 'CUSTOMER_OUTREACH', 'SCHEDULE_RETRY_WINDOW'];
+const SIMULATED_ACTIONS = ['CHECKOUT_RECOVERY', 'CUSTOMER_OUTREACH', 'SCHEDULE_RETRY_WINDOW', 'INVOICE_REMINDER'];
 
 function evaluatePolicy({
   recoveryCase,

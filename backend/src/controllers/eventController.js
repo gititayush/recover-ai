@@ -22,7 +22,14 @@ const ALLOWED_EVENT_TYPES = [
   'subscription.cancelled',
   'subscription.paused',
   'subscription.resumed',
-  'subscription.expired'
+  'subscription.expired',
+  'invoice.created',
+  'invoice.due',
+  'invoice.overdue',
+  'invoice.payment_failed',
+  'invoice.paid',
+  'invoice.disputed',
+  'invoice.cancelled'
 ];
 
 const eventSchema = z.object({
@@ -41,6 +48,9 @@ const eventSchema = z.object({
   subscriptionId: z.string().trim().max(128).optional(),
   billingCycle: z.string().trim().max(64).optional(),
   attemptNumber: z.number().int().nonnegative().optional(),
+  invoiceId: z.string().trim().max(128).optional(),
+  dueDate: z.string().datetime({ offset: true }).optional(),
+  daysOverdue: z.number().int().optional(),
   playbook: z.string().trim().max(64).optional(),
   rawPayload: z.record(z.any()).optional()
 }).strict();

@@ -49,6 +49,8 @@ class DevelopmentFallbackProvider {
       category = 'CHECKOUT_DROPOFF';
     } else if (reasonText.includes('subscription') || reasonText.includes('renewal') || reasonText.includes('mandate') || reasonText.includes('recurring')) {
       category = 'FAILED_SUBSCRIPTION';
+    } else if (reasonText.includes('invoice') || reasonText.includes('receivable') || reasonText.includes('terms') || reasonText.includes('overdue')) {
+      category = 'B2B_APPROVAL_DELAY';
     }
 
     const cause = context.failureReason
@@ -57,13 +59,17 @@ class DevelopmentFallbackProvider {
           ? 'Deterministic fallback: checkout drop-off detected at payment step.'
           : (category === 'FAILED_SUBSCRIPTION'
               ? 'Deterministic fallback: subscription renewal auto-debit failure.'
-              : 'Deterministic fallback: payment failure is recorded without a specific failure reason.'));
+              : (category === 'B2B_APPROVAL_DELAY'
+                  ? 'Deterministic fallback: corporate B2B invoice approval or payment terms delay.'
+                  : 'Deterministic fallback: payment failure is recorded without a specific failure reason.')));
 
     const action = (context.riskLevel === 'HIGH' && context.amount > 2500000) || context.paymentAttemptCount > 2
       ? 'REQUEST_MANUAL_REVIEW'
       : (category === 'CHECKOUT_DROPOFF'
           ? 'CHECKOUT_RECOVERY'
-          : (category === 'FAILED_SUBSCRIPTION' ? 'SCHEDULE_RETRY_WINDOW' : 'CREATE_PAYMENT_LINK'));
+          : (category === 'FAILED_SUBSCRIPTION'
+              ? 'SCHEDULE_RETRY_WINDOW'
+              : (category === 'B2B_APPROVAL_DELAY' ? 'INVOICE_REMINDER' : 'CREATE_PAYMENT_LINK')));
 
     return {
       diagnosis: { category, cause, confidence: 0.75, evidence: evidence.slice(0, 3) },

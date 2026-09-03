@@ -10,28 +10,104 @@
 const paymentDegradationPlaybook = require('./modules/paymentDegradation');
 const checkoutDropOffPlaybook = require('./modules/checkoutDropOff');
 const failedSubscriptionPlaybook = require('./modules/failedSubscription');
+const b2bReceivablesPlaybook = require('./modules/b2bReceivables');
+const { STRATEGY_DEFINITIONS, EXECUTION_MODES } = require('../strategies/strategyRegistry');
+
+class PlaybookRegistrationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'PlaybookRegistrationError';
+  }
+}
+
+const REQUIRED_INTERFACE_METHODS = ['matchesEvent', 'assessRisk', 'extractContext', 'getCandidateActions'];
+const VALID_EXECUTION_MODES = new Set([
+  EXECUTION_MODES.LIVE_PROVIDER,
+  EXECUTION_MODES.SIMULATED,
+  EXECUTION_MODES.CONTROL
+]);
 
 class PlaybookEngine {
   constructor() {
     this.playbooks = new Map();
     this.defaultPlaybook = paymentDegradationPlaybook;
 
-    // Register initial core playbooks
+    // Register initial core playbooks with standard priority
     this.register(paymentDegradationPlaybook);
     this.register(checkoutDropOffPlaybook);
     this.register(failedSubscriptionPlaybook);
+    this.register(b2bReceivablesPlaybook);
   }
 
   /**
-   * Registers a playbook module.
+   * Validates and registers a playbook module.
    *
    * @param {object} playbook
+   * @param {object} [options]
+   * @param {boolean} [options.allowOverride=false]
    */
-  register(playbook) {
-    if (!playbook || !playbook.id) {
-      throw new Error('Playbook must have a valid string "id".');
+  register(playbook, { allowOverride = false } = {}) {
+    if (!playbook || typeof playbook !== 'object') {
+      throw new PlaybookRegistrationError('Playbook must be a non-null object.');
     }
-    this.playbooks.set(playbook.id, playbook);
+
+    if (!playbook.id || typeof playbook.id !== 'string' || playbook.id.trim() === '') {
+      throw new PlaybookRegistrationError('Playbook must have a valid non-empty string "id".');
+    }
+
+    if (!allowOverride && this.playbooks.has(playbook.id)) {
+      throw new PlaybookRegistrationError(`Duplicate playbook ID '${playbook.id}'. Playbook is already registered.`);
+    }
+
+    if (!playbook.name || typeof playbook.name !== 'string' || playbook.name.trim() === '') {
+      throw new PlaybookRegistrationError(`Playbook '${playbook.id}' is missing a valid string "name".`);
+    }
+
+    if (!playbook.domain || typeof playbook.domain !== 'string' || playbook.domain.trim() === '') {
+      throw new PlaybookRegistrationError(`Playbook '${playbook.id}' is missing a valid string "domain".`);
+    }
+
+    // Validate required interface functions
+    for (const method of REQUIRED_INTERFACE_METHODS) {
+      if (typeof playbook[method] !== 'function') {
+        throw new PlaybookRegistrationError(`Playbook '${playbook.id}' is missing required interface method "${method}()".`);
+      }
+    }
+
+    // Validate custom policy function if provided
+    if (playbook.evaluateCustomPolicy !== undefined && typeof playbook.evaluateCustomPolicy !== 'function') {
+      throw new PlaybookRegistrationError(`Playbook '${playbook.id}' optional evaluateCustomPolicy must be a function if provided.`);
+    }
+
+    // Validate candidate strategies and execution modes
+    try {
+      const candidates = playbook.getCandidateActions({});
+      if (!Array.isArray(candidates) || candidates.length === 0) {
+        throw new PlaybookRegistrationError(`Playbook '${playbook.id}' getCandidateActions() must return a non-empty array of strategies.`);
+      }
+
+      for (const strategyId of candidates) {
+        const strategyDef = STRATEGY_DEFINITIONS[strategyId];
+        if (!strategyDef) {
+          throw new PlaybookRegistrationError(`Playbook '${playbook.id}' references unknown strategy '${strategyId}' not found in Strategy Registry.`);
+        }
+        if (!VALID_EXECUTION_MODES.has(strategyDef.executionMode)) {
+          throw new PlaybookRegistrationError(`Strategy '${strategyId}' referenced by playbook '${playbook.id}' has invalid execution mode '${strategyDef.executionMode}'.`);
+        }
+      }
+    } catch (err) {
+      if (err instanceof PlaybookRegistrationError) throw err;
+      throw new PlaybookRegistrationError(`Playbook '${playbook.id}' getCandidateActions() threw an error during registration validation: ${err.message}`);
+    }
+
+    const priority = typeof playbook.priority === 'number'
+      ? playbook.priority
+      : (playbook.flagship ? 0 : 100);
+
+    this.playbooks.set(playbook.id, {
+      ...playbook,
+      priority
+    });
   }
 
   /**
@@ -45,16 +121,17 @@ class PlaybookEngine {
   }
 
   /**
-   * Lists all registered playbooks.
+   * Lists all registered playbooks sorted by priority descending.
    *
    * @returns {Array}
    */
   list() {
-    return Array.from(this.playbooks.values());
+    return Array.from(this.playbooks.values()).sort((a, b) => (b.priority || 0) - (a.priority || 0));
   }
 
   /**
    * Identifies the matching playbook for an incoming event.
+   * Evaluates specialized domain playbooks in deterministic priority order.
    * Defaults to payment_degradation (V1 core gateway recovery) if no specialized playbook matches.
    *
    * @param {object} event
@@ -68,9 +145,13 @@ class PlaybookEngine {
       return this.playbooks.get(event.playbook);
     }
 
+    // Sort specialized domain playbooks in descending priority order
+    const specializedPlaybooks = Array.from(this.playbooks.values())
+      .filter((p) => p.id !== this.defaultPlaybook.id)
+      .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
     // Evaluate specialized domain playbooks first
-    for (const playbook of this.playbooks.values()) {
-      if (playbook.id === this.defaultPlaybook.id) continue;
+    for (const playbook of specializedPlaybooks) {
       if (typeof playbook.matchesEvent === 'function' && playbook.matchesEvent(event)) {
         return playbook;
       }
@@ -113,7 +194,13 @@ class PlaybookEngine {
    */
   getCandidateActions(context, category) {
     const playbookId = context?.playbook
-      || (category === 'CHECKOUT_DROPOFF' ? 'checkout_drop_off' : (category === 'FAILED_SUBSCRIPTION' ? 'failed_subscription' : 'payment_degradation'));
+      || (category === 'CHECKOUT_DROPOFF'
+          ? 'checkout_drop_off'
+          : (category === 'FAILED_SUBSCRIPTION'
+              ? 'failed_subscription'
+              : (['B2B_APPROVAL_DELAY', 'B2B_RECEIVABLES'].includes(category)
+                  ? 'b2b_receivables'
+                  : 'payment_degradation')));
     const playbook = this.get(playbookId) || this.defaultPlaybook;
     if (typeof playbook.getCandidateActions === 'function') {
       return playbook.getCandidateActions(context);
@@ -143,6 +230,7 @@ const defaultEngine = new PlaybookEngine();
 
 module.exports = {
   PlaybookEngine,
+  PlaybookRegistrationError,
   defaultEngine,
   playbookEngine: defaultEngine
 };
