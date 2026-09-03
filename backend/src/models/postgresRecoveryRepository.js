@@ -505,6 +505,36 @@ class PostgresRecoveryRepository {
       outcomes
     };
   }
+
+  async getAllCases() {
+    const result = await this.pool.query('SELECT * FROM recovery_cases ORDER BY last_event_at DESC');
+    return result.rows.map(mapCase);
+  }
+
+  async getAllActions() {
+    const result = await this.pool.query('SELECT * FROM recovery_actions ORDER BY created_at ASC');
+    return result.rows.map(mapAction);
+  }
+
+  async getAllOutcomes() {
+    const result = await this.pool.query('SELECT * FROM recovery_outcomes ORDER BY created_at ASC');
+    return result.rows.map(mapOutcome);
+  }
+
+  async getAllDiagnoses() {
+    const result = await this.pool.query('SELECT * FROM ai_diagnoses ORDER BY created_at ASC');
+    return result.rows.map(mapDiagnosis);
+  }
+
+  async getAllAudits() {
+    const result = await this.pool.query('SELECT * FROM audit_events ORDER BY created_at ASC');
+    return result.rows.map((row) => ({ id: Number(row.id), recoveryCaseId: Number(row.recovery_case_id), eventType: row.event_type, message: row.message, metadata: row.metadata, createdAt: row.created_at }));
+  }
+
+  async getAllEvents() {
+    const result = await this.pool.query('SELECT * FROM events ORDER BY occurred_at ASC');
+    return result.rows.map(mapEvent);
+  }
 }
 
 module.exports = { PostgresRecoveryRepository };

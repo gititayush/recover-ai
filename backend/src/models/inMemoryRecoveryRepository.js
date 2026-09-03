@@ -298,6 +298,13 @@ class InMemoryRecoveryRepository {
       outcomes: await this.findOutcomesByCaseId(recoveryCase.id)
     };
   }
+
+  async getAllCases() { return [...this.cases]; }
+  async getAllActions() { return [...this.actions]; }
+  async getAllOutcomes() { return [...this.outcomes]; }
+  async getAllDiagnoses() { return [...(this.aiDiagnoses || [])]; }
+  async getAllAudits() { return [...this.audits]; }
+  async getAllEvents() { return [...this.events]; }
 }
 
 module.exports = { InMemoryRecoveryRepository };
