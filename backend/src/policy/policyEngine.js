@@ -9,7 +9,7 @@ const { playbookEngine } = require('../playbooks/playbookEngine');
 
 const POLICY_VERSION = 'recoverai-policy-v1';
 const ALLOWED_ACTIONS = ['CREATE_PAYMENT_LINK'];
-const SIMULATED_ACTIONS = ['CHECKOUT_RECOVERY', 'CUSTOMER_OUTREACH'];
+const SIMULATED_ACTIONS = ['CHECKOUT_RECOVERY', 'CUSTOMER_OUTREACH', 'SCHEDULE_RETRY_WINDOW'];
 
 function evaluatePolicy({
   recoveryCase,
@@ -102,12 +102,19 @@ function evaluatePolicy({
     recordRule('resolved_outcome_check', 'PASS');
   }
 
+  // Identify playbook candidate actions
+  const latestEvt = events.at(-1);
+  const activePlaybook = playbookEngine.identifyPlaybook(latestEvt || { playbook: recoveryCase?.playbook });
+  const isPlaybookAction = activePlaybook && typeof activePlaybook.getCandidateActions === 'function'
+    ? activePlaybook.getCandidateActions({ playbook: activePlaybook.id, ...recoveryCase }).includes(targetAction)
+    : false;
+
   // RULE 3 — ACTION ALLOWLIST
   if (targetAction === 'NO_ACTION') {
     recordRule('action_allowlist', 'BLOCK', 'Proposed action is NO_ACTION; no recovery intervention requested.');
   } else if (targetAction === 'REQUEST_MANUAL_REVIEW') {
     recordRule('action_allowlist', 'REVIEW', 'AI proposed manual review.');
-  } else if (allowSimulated && SIMULATED_ACTIONS.includes(targetAction)) {
+  } else if (allowSimulated && SIMULATED_ACTIONS.includes(targetAction) && isPlaybookAction) {
     recordRule('action_allowlist', 'PASS');
   } else if (!ALLOWED_ACTIONS.includes(targetAction)) {
     recordRule('action_allowlist', 'BLOCK', `Action '${targetAction}' is not in the authorized action allowlist.`);

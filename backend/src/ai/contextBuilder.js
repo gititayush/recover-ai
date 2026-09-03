@@ -13,13 +13,21 @@ function buildCaseContext(detail, now = new Date()) {
     || latestEvent(events, 'checkout.payment_step_reached')
     || (lastEvent?.eventType?.startsWith('checkout.') ? lastEvent : null);
 
-  const lastActionable = lastFailure || lastDropOff;
+  const lastSubscriptionFailure = latestEvent(events, 'subscription.renewal_failed')
+    || (lastEvent?.eventType?.startsWith('subscription.') ? lastEvent : null);
+
+  const lastActionable = lastFailure || lastDropOff || lastSubscriptionFailure;
 
   const timeSinceFailureMinutes = lastActionable
     ? Math.max(0, Math.floor((now.getTime() - new Date(lastActionable.timestamp || lastActionable.occurredAt).getTime()) / 60000))
     : null;
 
-  const hasPriorSuccess = events.some((event) => ['captured', 'paid', 'authorized'].includes(event.paymentStatus) || event.eventType === 'order.paid' || event.eventType === 'checkout.completed');
+  const hasPriorSuccess = events.some((event) =>
+    ['captured', 'paid', 'authorized'].includes(event.paymentStatus) ||
+    event.eventType === 'order.paid' ||
+    event.eventType === 'checkout.completed' ||
+    event.eventType === 'subscription.charged'
+  );
   const hasOrder = Boolean(recoveryCase.orderId || events.some((event) => Boolean(event.orderId)));
 
   let errorCode = null;
@@ -34,6 +42,9 @@ function buildCaseContext(detail, now = new Date()) {
   const failureReason = lastFailure?.failureReason
     || lastDropOff?.failureReason
     || lastDropOff?.rawPayload?.abandonmentReason
+    || lastSubscriptionFailure?.failureReason
+    || lastSubscriptionFailure?.rawPayload?.failureReason
+    || lastSubscriptionFailure?.rawPayload?.mandateFailureReason
     || recoveryCase.riskReason
     || null;
 
@@ -45,7 +56,7 @@ function buildCaseContext(detail, now = new Date()) {
     riskLevel: recoveryCase.riskLevel,
     riskReason: recoveryCase.riskReason,
     paymentStatus: lastEvent?.paymentStatus || null,
-    orderStatus: events.some((event) => event.eventType === 'order.paid' || event.eventType === 'checkout.completed') ? 'paid' : null,
+    orderStatus: events.some((event) => event.eventType === 'order.paid' || event.eventType === 'checkout.completed' || event.eventType === 'subscription.charged') ? 'paid' : null,
     failureReason,
     errorCode,
     paymentAttemptCount: failureCount,

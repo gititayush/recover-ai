@@ -112,15 +112,28 @@ async function executeSimulatedAction(repository, {
   }
 
   // 4. Create EXECUTED simulated action
+  const retryDelayHours = strategy.parameters?.retryDelayHours || 48;
+  const nextRetryTimestamp = targetAction === 'SCHEDULE_RETRY_WINDOW'
+    ? new Date(now().getTime() + retryDelayHours * 3600 * 1000).toISOString()
+    : null;
+
   const requestMetadata = {
     strategy: targetAction,
     strategyName: strategy.name,
     executionMode: strategy.executionMode,
     isSimulated: true,
-    proposedNextStep: targetAction === 'CHECKOUT_RECOVERY'
-      ? 'Preserve customer cart items and generate personalized recovery session link'
-      : (targetAction === 'CUSTOMER_OUTREACH' ? 'Dispatch customer reminder notification across verified channels' : 'Execute simulated advisory workflow'),
-    checkoutContext: {
+    proposedNextStep: targetAction === 'SCHEDULE_RETRY_WINDOW'
+      ? `Schedule secondary subscription auto-debit retry window at ${nextRetryTimestamp} (configurable merchant policy: +${retryDelayHours}h)`
+      : (targetAction === 'CHECKOUT_RECOVERY'
+          ? 'Preserve customer cart items and generate personalized recovery session link'
+          : (targetAction === 'CUSTOMER_OUTREACH' ? 'Dispatch customer reminder notification across verified channels' : 'Execute simulated advisory workflow')),
+    retrySchedule: targetAction === 'SCHEDULE_RETRY_WINDOW' ? {
+      attemptNumber,
+      nextRetryAt: nextRetryTimestamp,
+      cooldownHours: 24,
+      policy: `merchant_configured_backoff_+${retryDelayHours}h`
+    } : null,
+    domainContext: {
       caseId: recoveryCase.id,
       amount: recoveryCase.amount,
       currency: recoveryCase.currency,
@@ -131,6 +144,7 @@ async function executeSimulatedAction(repository, {
   const responseMetadata = {
     simulated: true,
     executedAt: now().toISOString(),
+    nextRetryAt: nextRetryTimestamp,
     externalApiCalled: false,
     provider: 'simulated',
     recoveredAmount: 0,
@@ -155,7 +169,8 @@ async function executeSimulatedAction(repository, {
   await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTED', `Simulated recovery action '${targetAction}' executed`, {
     actionId: createdAction.id,
     actionType: targetAction,
-    isSimulated: true
+    isSimulated: true,
+    nextRetryAt: nextRetryTimestamp
   });
 
   return {

@@ -31,7 +31,7 @@ async function processEvent(repository, event) {
     const isPaid = assessment.outcome === 'PAID';
     const updated = await repository.updateCase(existingCase.id, {
       riskStatus: isPaid ? 'RESOLVED' : 'SUPPRESSED',
-      riskReason: isPaid ? 'Payment reached a successful terminal state' : (assessment.outcome === 'OPTED_OUT' ? 'Customer cancelled or opted out of recovery' : 'Payment was refunded; recovery is suppressed'),
+      riskReason: isPaid ? 'Payment reached a successful terminal state' : (['OPTED_OUT', 'CANCELLED'].includes(assessment.outcome) ? 'Subscription or checkout was cancelled or customer opted out' : 'Payment was refunded; recovery is suppressed'),
       riskLevel: 'LOW',
       outcome: assessment.outcome,
       autonomyStatus: isPaid ? 'COMPLETED' : 'BLOCKED',

@@ -119,7 +119,7 @@ function evaluateCandidates(context, category = null) {
   if (category && CATEGORY_ALLOWED_ACTIONS[category]) {
     allowedActions = CATEGORY_ALLOWED_ACTIONS[category];
   } else if (context.playbook === 'failed_subscription' || context.playbook === 'mandate_retry') {
-    allowedActions = ['SCHEDULE_RETRY_WINDOW', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+    allowedActions = ['SCHEDULE_RETRY_WINDOW', 'CREATE_PAYMENT_LINK', 'CUSTOMER_OUTREACH', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else if (context.playbook === 'hinglish_voice_recovery') {
     allowedActions = ['DISPATCH_VERNACULAR_ASSIST', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else if (context.playbook === 'promise_to_pay') {

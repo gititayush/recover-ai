@@ -122,7 +122,7 @@ function evaluateBatchItem(item, { isTestMode = true, confidenceThreshold, now =
   // Default to CREATE_PAYMENT_LINK for transient failures, or SCHEDULE_RETRY_WINDOW for recurring
   let candidateAction = 'CREATE_PAYMENT_LINK';
   const reasonLower = (item.failureReason || '').toLowerCase();
-  if (reasonLower.includes('insufficient_funds') || reasonLower.includes('mandate')) {
+  if (reasonLower.includes('insufficient_funds') || reasonLower.includes('mandate') || reasonLower.includes('subscription') || reasonLower.includes('renewal') || item.playbook === 'failed_subscription') {
     candidateAction = 'SCHEDULE_RETRY_WINDOW';
   } else if (item.amount > 2500000) {
     candidateAction = 'REQUEST_MANUAL_REVIEW';

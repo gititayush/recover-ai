@@ -9,6 +9,7 @@
 
 const paymentDegradationPlaybook = require('./modules/paymentDegradation');
 const checkoutDropOffPlaybook = require('./modules/checkoutDropOff');
+const failedSubscriptionPlaybook = require('./modules/failedSubscription');
 
 class PlaybookEngine {
   constructor() {
@@ -18,6 +19,7 @@ class PlaybookEngine {
     // Register initial core playbooks
     this.register(paymentDegradationPlaybook);
     this.register(checkoutDropOffPlaybook);
+    this.register(failedSubscriptionPlaybook);
   }
 
   /**
@@ -110,7 +112,8 @@ class PlaybookEngine {
    * @returns {Array<string>}
    */
   getCandidateActions(context, category) {
-    const playbookId = context?.playbook || (category === 'CHECKOUT_DROPOFF' ? 'checkout_drop_off' : 'payment_degradation');
+    const playbookId = context?.playbook
+      || (category === 'CHECKOUT_DROPOFF' ? 'checkout_drop_off' : (category === 'FAILED_SUBSCRIPTION' ? 'failed_subscription' : 'payment_degradation'));
     const playbook = this.get(playbookId) || this.defaultPlaybook;
     if (typeof playbook.getCandidateActions === 'function') {
       return playbook.getCandidateActions(context);

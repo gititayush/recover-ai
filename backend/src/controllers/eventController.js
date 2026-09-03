@@ -14,7 +14,15 @@ const ALLOWED_EVENT_TYPES = [
   'checkout.abandoned',
   'checkout.drop_off',
   'checkout.completed',
-  'checkout.cancelled'
+  'checkout.cancelled',
+  'subscription.created',
+  'subscription.renewal_due',
+  'subscription.renewal_failed',
+  'subscription.charged',
+  'subscription.cancelled',
+  'subscription.paused',
+  'subscription.resumed',
+  'subscription.expired'
 ];
 
 const eventSchema = z.object({
@@ -30,6 +38,9 @@ const eventSchema = z.object({
   timestamp: z.string().datetime({ offset: true }),
   checkoutStage: z.string().trim().max(64).optional(),
   cartReference: z.string().trim().max(128).optional(),
+  subscriptionId: z.string().trim().max(128).optional(),
+  billingCycle: z.string().trim().max(64).optional(),
+  attemptNumber: z.number().int().nonnegative().optional(),
   playbook: z.string().trim().max(64).optional(),
   rawPayload: z.record(z.any()).optional()
 }).strict();

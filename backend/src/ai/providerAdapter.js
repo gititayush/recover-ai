@@ -47,17 +47,23 @@ class DevelopmentFallbackProvider {
       category = 'TRANSIENT_PAYMENT_FAILURE';
     } else if (reasonText.includes('checkout') || reasonText.includes('abandon') || reasonText.includes('drop')) {
       category = 'CHECKOUT_DROPOFF';
+    } else if (reasonText.includes('subscription') || reasonText.includes('renewal') || reasonText.includes('mandate') || reasonText.includes('recurring')) {
+      category = 'FAILED_SUBSCRIPTION';
     }
 
     const cause = context.failureReason
       ? `Deterministic fallback: recorded reason is ${context.failureReason}.`
       : (category === 'CHECKOUT_DROPOFF'
           ? 'Deterministic fallback: checkout drop-off detected at payment step.'
-          : 'Deterministic fallback: payment failure is recorded without a specific failure reason.');
+          : (category === 'FAILED_SUBSCRIPTION'
+              ? 'Deterministic fallback: subscription renewal auto-debit failure.'
+              : 'Deterministic fallback: payment failure is recorded without a specific failure reason.'));
 
     const action = (context.riskLevel === 'HIGH' && context.amount > 2500000) || context.paymentAttemptCount > 2
       ? 'REQUEST_MANUAL_REVIEW'
-      : (category === 'CHECKOUT_DROPOFF' ? 'CHECKOUT_RECOVERY' : 'CREATE_PAYMENT_LINK');
+      : (category === 'CHECKOUT_DROPOFF'
+          ? 'CHECKOUT_RECOVERY'
+          : (category === 'FAILED_SUBSCRIPTION' ? 'SCHEDULE_RETRY_WINDOW' : 'CREATE_PAYMENT_LINK'));
 
     return {
       diagnosis: { category, cause, confidence: 0.75, evidence: evidence.slice(0, 3) },
