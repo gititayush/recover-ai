@@ -317,7 +317,21 @@ async function executePaymentLink(repository, {
     };
   }
 
-  // 8. Normal Success Update
+  // 8. Validate Provider Result Integrity
+  if (!result || !result.id) {
+    const malformedError = new Error('Provider response missing required payment link identifier (id).');
+    const failedAction = await repository.updateAction(actionRecord.id, {
+      status: 'FAILED',
+      failureReason: malformedError.message,
+      responseMetadata: result || {}
+    });
+    await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTION_FAILED', malformedError.message, {
+      actionId: failedAction.id
+    });
+    throw new RecoveryExecutorError(malformedError.message, 502, { action: failedAction });
+  }
+
+  // 9. Normal Success Update
   const executedAction = await repository.updateAction(actionRecord.id, {
     status: 'EXECUTED',
     providerActionId: result.id,

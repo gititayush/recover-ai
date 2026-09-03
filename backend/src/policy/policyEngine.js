@@ -52,10 +52,17 @@ function evaluatePolicy({
   }
 
   // RULE 7 — PAYMENT AMOUNT INTEGRITY
-  if (recoveryCase && (recoveryCase.amount <= 0 || isNaN(recoveryCase.amount))) {
-    recordRule('amount_integrity', 'BLOCK', `Invalid recovery amount (${recoveryCase?.amount}).`);
+  if (recoveryCase && (recoveryCase.amount <= 0 || !Number.isInteger(recoveryCase.amount) || isNaN(recoveryCase.amount))) {
+    recordRule('amount_integrity', 'BLOCK', `Invalid recovery amount (${recoveryCase?.amount}). Must be a positive integer in paise.`);
   } else {
     recordRule('amount_integrity', 'PASS');
+  }
+
+  // RULE 8 — CURRENCY INTEGRITY
+  if (recoveryCase && recoveryCase.currency && recoveryCase.currency.toUpperCase() !== 'INR') {
+    recordRule('currency_integrity', 'BLOCK', `Unsupported or mismatched recovery currency '${recoveryCase.currency}'. Only INR is supported.`);
+  } else {
+    recordRule('currency_integrity', 'PASS');
   }
 
   // RULE 11 — TEST MODE VERIFICATION
