@@ -4503,6 +4503,12 @@ code { font-family: var(--font-mono); }
 }
 
 /* ── Outcome ── */
+.lab-pending-settlement-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 4px;
+}
 .lab-outcome-note {
   margin-top: 10px;
   font-size: 0.75rem;

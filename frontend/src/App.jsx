@@ -868,7 +868,9 @@ export function IntelligenceView({ cases, onSelectCase }) {
 
               {item.activeCases.length > 0 && (
                 <div className="tax-active-cases">
-                  <span className="active-cases-label">ACTIVE CASES:</span>
+                  <span className="active-cases-label">
+                    {item.family === 'UNKNOWN_FAILURE' ? 'HISTORICAL CASES:' : 'ACTIVE CASES:'}
+                  </span>
                   <div className="active-cases-pills">
                     {item.activeCases.map((c, i) => (
                       <span key={i} className="active-case-tag">{c}</span>
@@ -2798,6 +2800,11 @@ function RecoveryLabView() {
                       <span className="lab-intel-label">Autonomy Status</span>
                       <span className="lab-intel-val font-mono">{result.executionResult.caseAutonomyStatus || '—'}</span>
                     </div>
+                    {result.executionResult.executed && (!result.finalCaseState?.outcome || result.finalCaseState?.outcome === 'PENDING') && (
+                      <div className="lab-pending-settlement-sub">
+                        Action executed; recovery remains pending customer settlement.
+                      </div>
+                    )}
                   </>
                 ) : (
                   <span className="lab-muted">No execution occurred — policy blocked or stopping engine halted.</span>
@@ -2823,6 +2830,11 @@ function RecoveryLabView() {
                       <span className="lab-intel-label">Outcome</span>
                       <span className="lab-intel-val font-mono">{result.finalCaseState.outcome || 'PENDING'}</span>
                     </div>
+                    {result.executionResult?.executed && (!result.finalCaseState.outcome || result.finalCaseState.outcome === 'PENDING') && (
+                      <div className="lab-pending-settlement-sub">
+                        Action executed; recovery remains pending customer settlement.
+                      </div>
+                    )}
                     {result.finalCaseState.recoveredAmountPaise > 0 && (
                       <div className="lab-intel-row">
                         <span className="lab-intel-label">Simulated Recovery</span>
