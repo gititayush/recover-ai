@@ -10,6 +10,7 @@ const { createRazorpayWebhookRouter } = require('./routes/razorpayWebhooks');
 const { createWhatsAppWebhookRouter } = require('./routes/whatsappWebhooks');
 const { createBatchRouter } = require('./routes/batch');
 const { createAnalyticsRouter } = require('./routes/analytics');
+const { createRecoveryLabRouter } = require('./routes/recoveryLab');
 const { createDiagnosisService } = require('./ai/diagnosisService');
 const { createRazorpayClient } = require('./services/razorpayClient');
 const { createWhatsAppProvider } = require('./services/providers/whatsappProvider');
@@ -49,6 +50,7 @@ function createApp(repository, { diagnosisService = createDiagnosisService(), ra
   app.use('/api/cases', createCaseRouter(repository, diagnosisService, razorpayClient, whatsappProvider));
   app.use('/api/batch', createBatchRouter());
   app.use('/api/recovery/analytics', createAnalyticsRouter(repository));
+  app.use('/api/recovery/lab', createRecoveryLabRouter());
 
   // Serve static assets from frontend/dist in production/unified mode
   const distPath = path.resolve(__dirname, '../../frontend/dist');

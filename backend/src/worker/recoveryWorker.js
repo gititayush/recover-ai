@@ -262,15 +262,61 @@ function createRecoveryWorker({
         };
       }
 
-      // 5. Bounded Execution via Payment Link Executor (with ambiguous-success & TOCTOU protection)
-      const executionResult = await executePaymentLink(repository, {
-        recoveryCase: freshCase,
-        diagnosis,
-        events,
-        razorpayClient,
-        referenceId: `REV-C${freshCase.id}-PLINK`,
-        now
-      });
+      // 5. Bounded Execution via Payment Link Executor or Stateful Retry Executor
+      let executionResult;
+      const isRetryWindow = targetAction === 'SCHEDULE_RETRY_WINDOW';
+      const wasScheduled = claimedCase.autonomyStatus === 'RETRY_SCHEDULED' ||
+        (claimedCase.nextRetryAt && new Date(claimedCase.nextRetryAt).getTime() <= now().getTime());
+
+      if (isRetryWindow) {
+        const { executeSimulatedAction } = require('../actions/simulatedActionExecutor');
+        executionResult = await executeSimulatedAction(repository, {
+          recoveryCase: freshCase,
+          diagnosis,
+          actionType: 'SCHEDULE_RETRY_WINDOW',
+          events,
+          now
+        });
+
+        if (wasScheduled) {
+          await repository.addAudit(claimedCase.id, 'RETRY_WINDOW_EXECUTED', `Smart Retry Window executed after clearing window. Attempt ${claimedCase.autonomyAttempts} processed.`, {
+            caseId: claimedCase.id,
+            attemptNumber: claimedCase.autonomyAttempts,
+            scheduledFor: claimedCase.nextRetryAt,
+            executedAt: now().toISOString()
+          });
+          await repository.releaseJob(claimedCase.id, leaseToken, {
+            autonomyStatus: 'COMPLETED'
+          });
+          return {
+            processed: true,
+            status: 'COMPLETED',
+            action: executionResult.action
+          };
+        } else {
+          const updatedNextRetryAt = executionResult.action?.requestMetadata?.retrySchedule?.nextRetryAt ||
+            executionResult.action?.responseMetadata?.nextRetryAt ||
+            freshCase.nextRetryAt;
+          await repository.releaseJob(claimedCase.id, leaseToken, {
+            autonomyStatus: 'RETRY_SCHEDULED',
+            nextRetryAt: updatedNextRetryAt
+          });
+          return {
+            processed: true,
+            status: 'RETRY_SCHEDULED',
+            action: executionResult.action
+          };
+        }
+      } else {
+        executionResult = await executePaymentLink(repository, {
+          recoveryCase: freshCase,
+          diagnosis,
+          events,
+          razorpayClient,
+          referenceId: `REV-C${freshCase.id}-PLINK`,
+          now
+        });
+      }
 
       if (executionResult.superseded) {
         // Customer paid externally during provider call

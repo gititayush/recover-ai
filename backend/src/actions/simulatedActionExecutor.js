@@ -65,11 +65,32 @@ async function executeSimulatedAction(repository, {
   const idempotencyKey = `sim_${recoveryCase.id}_${targetAction.toLowerCase()}_v${attemptNumber}`;
 
   // 3. Evaluate policy
+  const caseEvents = (events && events.length > 0)
+    ? events
+    : (typeof repository.getEventsForPayment === 'function' && recoveryCase?.paymentId
+        ? await repository.getEventsForPayment(recoveryCase.paymentId)
+        : []);
+
+  let effectiveDiagnosis = diagnosis;
+  if (!effectiveDiagnosis && typeof repository.findDiagnosisByCaseId === 'function' && recoveryCase?.id) {
+    effectiveDiagnosis = await repository.findDiagnosisByCaseId(recoveryCase.id);
+  }
+  if (!effectiveDiagnosis) {
+    effectiveDiagnosis = {
+      diagnosis: {
+        cause: recoveryCase?.failureReason || recoveryCase?.riskReason || 'Simulated intervention execution',
+        confidence: 0.90,
+        failureFamily: recoveryCase?.failureFamily || 'SYSTEM_DEFAULT'
+      },
+      proposedAction: targetAction
+    };
+  }
+
   const policyDecision = evaluatePolicy({
     recoveryCase,
-    diagnosis,
+    diagnosis: effectiveDiagnosis,
     candidateAction: targetAction,
-    events,
+    events: caseEvents,
     existingActions,
     candidateReference: idempotencyKey,
     allowSimulated: true,
@@ -113,9 +134,21 @@ async function executeSimulatedAction(repository, {
   }
 
   // 4. Create EXECUTED simulated action
-  const retryDelayHours = strategy.parameters?.retryDelayHours || 48;
+  const failureFam = diagnosis?.diagnosis?.failureFamily || recoveryCase?.failureFamily;
+  let retryDelayMinutes;
+  if (strategy.parameters?.retryDelayMinutes) {
+    retryDelayMinutes = strategy.parameters.retryDelayMinutes;
+  } else if (strategy.parameters?.retryDelayHours) {
+    retryDelayMinutes = strategy.parameters.retryDelayHours * 60;
+  } else if (failureFam === 'BANK_SWITCH_TIMEOUT' || (recoveryCase?.riskReason && recoveryCase.riskReason.toLowerCase().includes('timeout'))) {
+    retryDelayMinutes = 15;
+  } else {
+    retryDelayMinutes = 48 * 60;
+  }
+  const retryDelayHours = Math.round((retryDelayMinutes / 60) * 100) / 100;
+
   const nextRetryTimestamp = targetAction === 'SCHEDULE_RETRY_WINDOW'
-    ? new Date(now().getTime() + retryDelayHours * 3600 * 1000).toISOString()
+    ? new Date(now().getTime() + retryDelayMinutes * 60 * 1000).toISOString()
     : null;
 
   let communication = null;
@@ -206,6 +239,23 @@ async function executeSimulatedAction(repository, {
     isSimulated: true,
     nextRetryAt: nextRetryTimestamp
   });
+
+  if (targetAction === 'SCHEDULE_RETRY_WINDOW' && nextRetryTimestamp) {
+    if (typeof repository.updateCase === 'function') {
+      await repository.updateCase(recoveryCase.id, {
+        autonomyStatus: 'RETRY_SCHEDULED',
+        nextRetryAt: nextRetryTimestamp
+      });
+    }
+
+    await repository.addAudit(recoveryCase.id, 'RETRY_WINDOW_SCHEDULED', `Smart Retry Window scheduled for ${nextRetryTimestamp} (+${retryDelayMinutes >= 60 ? retryDelayHours + 'h' : retryDelayMinutes + 'm'} backoff)`, {
+      actionId: createdAction.id,
+      nextRetryAt: nextRetryTimestamp,
+      attemptNumber,
+      retryDelayMinutes,
+      failureFamily: failureFam || null
+    });
+  }
 
   return {
     action: createdAction,

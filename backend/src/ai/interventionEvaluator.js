@@ -24,11 +24,12 @@ function baseProbability(context) {
   return Math.min(probability, 0.7);
 }
 
-function getActionDefinition(action, context, baseProb) {
+function getActionDefinition(action, context, baseProb, effectiveFamily = null) {
   const strategy = getStrategy(action);
   const executionMode = strategy?.executionMode || (action === 'CREATE_PAYMENT_LINK' ? EXECUTION_MODES.LIVE_PROVIDER : (['REQUEST_MANUAL_REVIEW', 'NO_ACTION'].includes(action) ? EXECUTION_MODES.CONTROL : EXECUTION_MODES.SIMULATED));
   const isLiveExecutable = strategy ? strategy.isLiveExecutable : (action === 'CREATE_PAYMENT_LINK');
   const strategyDescription = strategy?.description || null;
+  const family = effectiveFamily || context?.failureFamily || null;
 
   switch (action) {
     case 'CREATE_PAYMENT_LINK':
@@ -41,16 +42,32 @@ function getActionDefinition(action, context, baseProb) {
         interventionCost: 0,
         estimatedFriction: Math.round(context.amount * 0.05)
       };
-    case 'SCHEDULE_RETRY_WINDOW':
+    case 'SCHEDULE_RETRY_WINDOW': {
+      let prob = Math.min(0.65, baseProb + 0.05);
+      let frictionRate = 0.02;
+      if (family === 'INSUFFICIENT_FUNDS') {
+        prob = Math.min(0.65, baseProb + 0.10);
+        frictionRate = 0.01;
+      } else if (family === 'BANK_SWITCH_TIMEOUT') {
+        const isRecent = context.timeSinceFailureMinutes === undefined || context.timeSinceFailureMinutes <= 15;
+        if (isRecent) {
+          prob = Math.min(0.70, baseProb + 0.10);
+          frictionRate = 0.01;
+        }
+      } else if (family === 'MANDATE_FAILURE') {
+        prob = Math.min(0.65, baseProb + 0.08);
+        frictionRate = 0.01;
+      }
       return {
         action: 'SCHEDULE_RETRY_WINDOW',
         executionMode,
         isLiveExecutable,
         strategyDescription,
-        estimatedProbability: Math.min(0.65, baseProb + 0.05),
+        estimatedProbability: prob,
         interventionCost: 500,
-        estimatedFriction: Math.round(context.amount * 0.02)
+        estimatedFriction: Math.round(context.amount * frictionRate)
       };
+    }
     case 'CHECKOUT_RECOVERY':
       return {
         action: 'CHECKOUT_RECOVERY',
@@ -126,6 +143,7 @@ function getActionDefinition(action, context, baseProb) {
 }
 
 function evaluateCandidates(context, category = null, failureFamily = null) {
+  const effectiveFamily = failureFamily || context?.failureFamily || null;
   const probability = baseProbability(context);
 
   let allowedActions;
@@ -139,17 +157,17 @@ function evaluateCandidates(context, category = null, failureFamily = null) {
     allowedActions = ['DISPATCH_VERNACULAR_ASSIST', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else if (context.playbook === 'promise_to_pay') {
     allowedActions = ['RECORD_PROMISE_TO_PAY', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
-  } else if (failureFamily === 'UNKNOWN_FAILURE') {
+  } else if (effectiveFamily === 'UNKNOWN_FAILURE') {
     allowedActions = ['REQUEST_MANUAL_REVIEW', 'CREATE_PAYMENT_LINK', 'NO_ACTION'];
-  } else if (failureFamily === 'INSUFFICIENT_FUNDS') {
-    allowedActions = ['CUSTOMER_OUTREACH', 'SCHEDULE_RETRY_WINDOW', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
-  } else if (failureFamily === 'BANK_SWITCH_TIMEOUT' || failureFamily === 'GATEWAY_TECHNICAL_FAILURE') {
+  } else if (effectiveFamily === 'INSUFFICIENT_FUNDS') {
+    allowedActions = ['SCHEDULE_RETRY_WINDOW', 'CUSTOMER_OUTREACH', 'CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
+  } else if (effectiveFamily === 'BANK_SWITCH_TIMEOUT' || effectiveFamily === 'GATEWAY_TECHNICAL_FAILURE') {
     allowedActions = ['CREATE_PAYMENT_LINK', 'SCHEDULE_RETRY_WINDOW', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   } else {
     allowedActions = ['CREATE_PAYMENT_LINK', 'REQUEST_MANUAL_REVIEW', 'NO_ACTION'];
   }
 
-  const definitions = allowedActions.map((action) => getActionDefinition(action, context, probability));
+  const definitions = allowedActions.map((action) => getActionDefinition(action, context, probability, effectiveFamily));
 
   return definitions.map((candidate) => ({
     ...candidate,
