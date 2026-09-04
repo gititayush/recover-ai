@@ -2287,7 +2287,8 @@ const LAB_SCENARIO_META = {
 
 function LabModeTag({ mode }) {
   if (!mode) return null;
-  const cls = `badge-mode mode-${(mode || '').toLowerCase().replace(/_/g, '_')}`;
+  const modeKey = mode === 'LIVE_PROVIDER' ? 'live' : (mode || '').toLowerCase();
+  const cls = `badge-mode mode-${modeKey}`;
   const label = mode === 'LIVE_PROVIDER' ? 'LIVE PROVIDER' : mode.replace(/_/g, ' ');
   return <span className={cls}>{label}</span>;
 }
@@ -2718,10 +2719,30 @@ function RecoveryLabView() {
                       <span className="lab-intel-label">Status</span>
                       <span className={`lab-exec-status ${result.executionResult.executed ? 'lab-exec-done' : 'lab-exec-none'}`}>
                         {result.executionResult.executed
-                          ? `EXECUTED — simulated_lab (${result.executionResult.actionStatus || 'EXECUTED'})`
+                          ? 'EXECUTED — simulated_lab'
                           : 'NOT EXECUTED'}
                       </span>
                     </div>
+                    {result.executionResult.executed && (() => {
+                      const plinkEvent = (result.decisionTrace || []).find((t) => t.type === 'ACTION_EXECUTED' && t.metadata?.paymentLinkUrl);
+                      if (!plinkEvent) return null;
+                      return (
+                        <>
+                          <div className="lab-intel-row">
+                            <span className="lab-intel-label">Lab Provider</span>
+                            <span className="lab-intel-val font-mono">simulated_lab</span>
+                          </div>
+                          <div className="lab-intel-row">
+                            <span className="lab-intel-label">Synthetic Ref</span>
+                            <span className="lab-intel-val font-mono">{plinkEvent.metadata.providerActionId}</span>
+                          </div>
+                          <div className="lab-intel-row">
+                            <span className="lab-intel-label">Synthetic Link</span>
+                            <span className="lab-intel-val font-mono">{plinkEvent.metadata.paymentLinkUrl}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
                     {result.executionResult.executed && (
                       <div className="lab-exec-sim-note">
                         🔒 Simulated execution only — no real Razorpay link was created, no funds moved, no messages sent.
@@ -2832,7 +2853,12 @@ function RecoveryLabView() {
                   result.decisionTrace.map((t, i) => (
                     <div key={i} className="lab-trace-row">
                       <span className="lab-trace-type">{t.type || 'EVENT'}</span>
-                      <span className="lab-trace-msg">{t.message || ''}</span>
+                      <span className="lab-trace-msg">
+                        {t.message || ''}
+                        {t.metadata?.paymentLinkUrl && (
+                          <span className="font-mono text-slate"> ({t.metadata.paymentLinkUrl})</span>
+                        )}
+                      </span>
                       <span className="lab-trace-time">{t.timestamp ? formatTime(t.timestamp) : ''}</span>
                     </div>
                   ))
