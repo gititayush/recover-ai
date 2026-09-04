@@ -34,6 +34,15 @@ function createApp(repository, { diagnosisService = createDiagnosisService(), ra
     const { getAllPlaybooks } = require('./playbooks/playbookDefinitions');
     response.json({ playbooks: getAllPlaybooks() });
   });
+  app.get('/api/recovery/adaptive-model', async (request, response, next) => {
+    try {
+      const { buildAdaptiveModelInspection } = require('./ai/adaptiveLearningEngine');
+      const modelInspection = await buildAdaptiveModelInspection(repository);
+      response.json(modelInspection);
+    } catch (error) {
+      next(error);
+    }
+  });
   app.get('/api/recovery/evaluation', (request, response) => {
     const summaryPath = path.join(__dirname, '..', '..', 'evaluation', 'results', 'evaluation_summary.json');
     if (fs.existsSync(summaryPath)) {

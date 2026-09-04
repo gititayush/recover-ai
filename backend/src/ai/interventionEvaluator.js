@@ -142,7 +142,9 @@ function getActionDefinition(action, context, baseProb, effectiveFamily = null) 
   }
 }
 
-function evaluateCandidates(context, category = null, failureFamily = null) {
+const { calculateLearnedProbability, PROVENANCE, MODEL_TYPES } = require('./adaptiveLearningEngine');
+
+function evaluateCandidates(context, category = null, failureFamily = null, options = {}) {
   const effectiveFamily = failureFamily || context?.failureFamily || null;
   const probability = baseProbability(context);
 
@@ -168,22 +170,66 @@ function evaluateCandidates(context, category = null, failureFamily = null) {
   }
 
   const definitions = allowedActions.map((action) => getActionDefinition(action, context, probability, effectiveFamily));
+  const learningModel = options.learningModel || null;
 
-  return definitions.map((candidate) => ({
-    ...candidate,
-    recoverableAmount: context.amount,
-    estimatedRecoveryValue: calculateERV({
-      amount: context.amount,
-      probability: candidate.estimatedProbability,
-      interventionCost: candidate.interventionCost,
-      frictionCost: candidate.estimatedFriction
-    }),
-    assumptions: {
-      heuristicVersion: HEURISTIC_VERSION,
-      isLearnedModel: false,
-      note: 'Heuristic estimate only; not a learned or measured recovery probability.'
+  return definitions.map((candidate) => {
+    const priorProb = candidate.estimatedProbability;
+
+    let learningInfo;
+    if (priorProb <= 0 || candidate.action === 'NO_ACTION') {
+      learningInfo = {
+        priorProbability: 0,
+        learnedProbability: 0,
+        sampleSize: 0,
+        successes: 0,
+        failures: 0,
+        deltaApplied: 0,
+        provenance: PROVENANCE.COLD_START_HEURISTIC,
+        isLearnedModel: false,
+        modelType: MODEL_TYPES.HEURISTIC
+      };
+    } else if (learningModel && typeof learningModel.getProbabilityForPair === 'function') {
+      learningInfo = learningModel.getProbabilityForPair({
+        action: candidate.action,
+        failureFamily: effectiveFamily,
+        priorProbability: priorProb
+      });
+    } else {
+      learningInfo = calculateLearnedProbability({
+        priorProbability: priorProb,
+        successes: 0,
+        failures: 0,
+        source: PROVENANCE.PRODUCTION_OUTCOMES
+      });
     }
-  }));
+
+    const effectiveProbability = learningInfo.learnedProbability;
+
+    return {
+      ...candidate,
+      estimatedProbability: effectiveProbability,
+      recoverableAmount: context.amount,
+      estimatedRecoveryValue: calculateERV({
+        amount: context.amount,
+        probability: effectiveProbability,
+        interventionCost: candidate.interventionCost,
+        frictionCost: candidate.estimatedFriction
+      }),
+      assumptions: {
+        heuristicVersion: HEURISTIC_VERSION,
+        isLearnedModel: learningInfo.isLearnedModel,
+        modelType: learningInfo.modelType,
+        provenance: learningInfo.provenance,
+        priorProbability: learningInfo.priorProbability,
+        learnedProbability: learningInfo.learnedProbability,
+        sampleSize: learningInfo.sampleSize,
+        deltaApplied: learningInfo.deltaApplied,
+        note: learningInfo.isLearnedModel
+          ? `Bounded Empirical-Bayes adjustment applied (delta: ${learningInfo.deltaApplied > 0 ? '+' : ''}${learningInfo.deltaApplied}).`
+          : 'Heuristic estimate only; not a learned or measured recovery probability.'
+      }
+    };
+  });
 }
 
 function rankCandidates(candidates) {
@@ -191,4 +237,3 @@ function rankCandidates(candidates) {
 }
 
 module.exports = { HEURISTIC_VERSION, CATEGORY_ALLOWED_ACTIONS, evaluateCandidates, rankCandidates };
-
