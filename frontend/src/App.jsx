@@ -408,30 +408,6 @@ export function OverviewView({ metrics, analytics, cases, onSelectCase, onNaviga
             </div>
           </div>
 
-          {/* Secondary Timing Analysis */}
-          <div className="settlement-timing-panel">
-            <div className="timing-panel-header">
-              <span className="timing-panel-title">SETTLEMENT TIMING ANALYSIS (END-TO-END BUYER CONVERSION)</span>
-            </div>
-            <div className="timing-sub-grid">
-              <div className="timing-sub-cell">
-                <span className="timing-sub-k">AVERAGE RECOVERY TIME</span>
-                <span className="timing-sub-v font-bold">{velocity.averageTimeToRecoveryFormatted || '157m 45s'}</span>
-                <span className="timing-sub-label">Across verified cases</span>
-              </div>
-              <div className="timing-sub-cell">
-                <span className="timing-sub-k">MEDIAN TIME TO RECOVERY</span>
-                <span className="timing-sub-v font-bold">{velocity.medianTimeToRecoveryFormatted || '169m 59s'}</span>
-                <span className="timing-sub-label">Robust 50th percentile</span>
-              </div>
-              <div className="timing-sub-cell">
-                <span className="timing-sub-k">FASTEST RECOVERY</span>
-                <span className="timing-sub-v font-bold">{velocity.fastestRecoveryFormatted || '103m 43s'}</span>
-                <span className="timing-sub-label">Minimum buyer conversion</span>
-              </div>
-            </div>
-          </div>
-
           <div className="card-footer-banner">
             <span className="banner-icon">✓</span>
             <span>100% Ledger Grounded · All timestamps originate from authoritative Razorpay event payloads.</span>
