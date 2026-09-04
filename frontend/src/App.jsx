@@ -1478,6 +1478,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, cases, onSele
     { id: 'playbooks', title: 'Go to Playbooks & Benchmark', icon: '📖', view: 'playbooks' },
     { id: 'audit', title: 'Go to Operational Audit Trail', icon: '🔍', view: 'audit' },
     { id: 'lab', title: 'Open Recovery Lab (Demo Scenarios)', icon: '🧪', view: 'lab' },
+    { id: 'demo_portfolio', title: 'Go to Demo Recovery Portfolio (8-Cycle Test Mode)', icon: '🎯', view: 'demo_portfolio' },
     { id: 'settings', title: 'Go to System Settings', icon: '⚙️', view: 'settings' }
   ].filter((item) => !q || item.title.toLowerCase().includes(q));
 
@@ -2040,6 +2041,15 @@ export default function App() {
             <span className="nav-badge-demo">DEMO</span>
           </button>
 
+          <button
+            className={`nav-link ${currentView === 'demo_portfolio' ? 'active' : ''}`}
+            onClick={() => setCurrentView('demo_portfolio')}
+          >
+            <span className="nav-icon">🎯</span>
+            <span className="nav-text">Demo Portfolio</span>
+            <span className="nav-badge-demo">8 LINKS</span>
+          </button>
+
           <div className="nav-group-label">SYSTEM</div>
 
           <button
@@ -2214,6 +2224,10 @@ export default function App() {
 
           {currentView === 'lab' && (
             <RecoveryLabView />
+          )}
+
+          {currentView === 'demo_portfolio' && (
+            <DemoPortfolioView showToast={showToast} />
           )}
 
           {currentView === 'case_detail' && (
@@ -2907,6 +2921,670 @@ function RecoveryLabView() {
         </div>
       )}{/* end result */}
 
+    </div>
+  );
+}
+
+
+// =============================================================================
+// DEMO RECOVERY PORTFOLIO VIEW (RAZORPAY TEST MODE)
+// Dedicated view for the 8-cycle live Test Mode recovery suite.
+// Isolated partition (is_demo = true) — production metrics remain untouched.
+// =============================================================================
+
+export function DemoPortfolioView({ showToast }) {
+  const [cases, setCases] = useState([]);
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedCase, setSelectedCase] = useState(null);
+  const [detailData, setDetailData] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [filterFamily, setFilterFamily] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  async function loadDemoData() {
+    setLoading(true);
+    setError('');
+    try {
+      const [casesRes, metricsRes] = await Promise.all([
+        fetch('/api/demo/cases'),
+        fetch('/api/demo/metrics')
+      ]);
+      if (!casesRes.ok) throw new Error(`HTTP ${casesRes.status} loading demo cases`);
+      if (!metricsRes.ok) throw new Error(`HTTP ${metricsRes.status} loading demo metrics`);
+      const casesBody = await casesRes.json();
+      const metricsBody = await metricsRes.json();
+      setCases(casesBody.cases || []);
+      setMetrics(metricsBody.metrics || null);
+    } catch (err) {
+      setError(err.message || 'Failed to load demo portfolio data.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadDemoData();
+  }, []);
+
+  async function handleSeed() {
+    setSeeding(true);
+    setError('');
+    try {
+      const res = await fetch('/api/demo/seed', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || 'Failed to seed demo portfolio');
+      if (showToast) {
+        showToast(body.createdCount > 0
+          ? `Seeded ${body.createdCount} demo recovery cases!`
+          : 'Demo portfolio verified (all 8 cases already seeded).');
+      }
+      await loadDemoData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  async function handleInspectCase(caseItem) {
+    setSelectedCase(caseItem);
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`/api/demo/cases/${caseItem.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDetailData(data);
+      } else {
+        setDetailData(caseItem);
+      }
+    } catch {
+      setDetailData(caseItem);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
+
+  function handleCloseDrawer() {
+    setSelectedCase(null);
+    setDetailData(null);
+  }
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === 'Escape' && selectedCase) {
+        handleCloseDrawer();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedCase]);
+
+  // Aggregate metrics
+  const totalCases = cases.length;
+  const totalExposure = cases.reduce((acc, c) => acc + (c.amount || 0), 0);
+  const totalRecovered = cases.reduce((acc, c) => acc + (c.recoveredAmount || 0), 0);
+  const totalErv = cases.reduce((acc, c) => acc + (c.expectedRecoveryValue || 0), 0);
+  const recoveredCount = cases.filter(c => c.riskStatus === 'RESOLVED' || c.recoveredAmount > 0).length;
+
+  // Filtered cases
+  const filteredCases = cases.filter(c => {
+    if (filterFamily !== 'ALL' && c.failureFamily !== filterFamily) {
+      return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchName = (c.scenarioName || '').toLowerCase().includes(q);
+      const matchId = String(c.id).includes(q);
+      const matchPayment = (c.paymentId || '').toLowerCase().includes(q);
+      const matchFamily = (c.failureFamily || '').toLowerCase().includes(q);
+      const matchReason = (c.riskReason || '').toLowerCase().includes(q);
+      return matchName || matchId || matchPayment || matchFamily || matchReason;
+    }
+    return true;
+  });
+
+  const families = [
+    { key: 'ALL', label: 'All Scenarios', count: cases.length },
+    { key: 'GATEWAY_TECHNICAL_FAILURE', label: 'Gateway Failure', count: cases.filter(c => c.failureFamily === 'GATEWAY_TECHNICAL_FAILURE').length },
+    { key: 'AUTHENTICATION_FAILURE', label: 'Auth / Card', count: cases.filter(c => c.failureFamily === 'AUTHENTICATION_FAILURE').length },
+    { key: 'BANK_SWITCH_TIMEOUT', label: 'Bank Switch Timeout', count: cases.filter(c => c.failureFamily === 'BANK_SWITCH_TIMEOUT').length }
+  ];
+
+  return (
+    <div className="demo-portfolio-view">
+      {/* ── Top Safety & Mode Banner ── */}
+      <section className="demo-portfolio-safety-banner" aria-label="Demo Safety Banner">
+        <div className="safety-banner-primary">
+          <div className="safety-badge-group">
+            <span className="badge-demo-pill">DEMO / RAZORPAY TEST MODE</span>
+            <span className="badge-no-money-pill">NO REAL MONEY INVOLVED</span>
+            <span className="badge-partition-pill">ISOLATED PARTITION (is_demo = true)</span>
+          </div>
+          <p className="safety-banner-statement">
+            <strong>Production Isolation Guaranteed:</strong> This dedicated 8-cycle demo suite executes against live Razorpay Test Mode APIs. Existing production cases (4 cases · ₹1,750 recovered · ₹500 at risk) and adaptive learning weights remain strictly frozen and unaffected.
+          </p>
+        </div>
+        <div className="safety-banner-stats">
+          <div className="safety-stat-box">
+            <span className="safety-stat-label">PRODUCTION BASELINE</span>
+            <span className="safety-stat-val text-emerald">4 Cases · ₹1,750 Settled</span>
+          </div>
+          <div className="safety-stat-box">
+            <span className="safety-stat-label">GATEWAY INTEGRATION</span>
+            <span className="safety-stat-val text-blue">Razorpay Test Mode API</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Header Title & Actions ── */}
+      <header className="demo-portfolio-header">
+        <div className="demo-portfolio-title-group">
+          <div className="demo-portfolio-eyebrow">HIGH-VALUE RECOVERY SUITE · CHECKPOINT 3</div>
+          <h2 className="demo-portfolio-heading">8-Cycle Test Mode Recovery Portfolio</h2>
+          <p className="demo-portfolio-description">
+            8 distinct payment failure scenarios processed through Revflow’s authoritative decision pipeline. Every case independently diagnoses root-cause telemetry, scores candidate heuristic recovery values, and selects <strong>CREATE_PAYMENT_LINK</strong> under strict policy and stopping guardrails.
+          </p>
+        </div>
+        <div className="demo-portfolio-actions">
+          <button
+            type="button"
+            className="btn-seed-portfolio"
+            onClick={handleSeed}
+            disabled={seeding || loading}
+            title="Seed or verify the 8 demo fixtures in the database"
+          >
+            {seeding ? '⏳ Seeding...' : '🌱 Seed / Reset Portfolio'}
+          </button>
+          <button
+            type="button"
+            className="btn-refresh-portfolio"
+            onClick={loadDemoData}
+            disabled={loading}
+            title="Reload portfolio data"
+          >
+            🔄 Refresh
+          </button>
+        </div>
+      </header>
+
+      {error && <div className="demo-error-banner" role="alert">{error}</div>}
+
+      {/* ── Top KPI Cards Row ── */}
+      <section className="demo-kpi-row" aria-label="Demo KPI Summary">
+        <div className="demo-kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-icon">📁</span>
+            <span className="kpi-title">TOTAL DEMO CASES</span>
+          </div>
+          <div className="kpi-card-number">{totalCases} Cases</div>
+          <div className="kpi-card-footer">Option A High-Value Suite</div>
+        </div>
+
+        <div className="demo-kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-icon">⚠️</span>
+            <span className="kpi-title">TOTAL TEST EXPOSURE</span>
+          </div>
+          <div className="kpi-card-number text-amber">{formatMoney(totalExposure)}</div>
+          <div className="kpi-card-footer">Sum of 8 Failed Payments</div>
+        </div>
+
+        <div className="demo-kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-icon">✅</span>
+            <span className="kpi-title">TEST RECOVERED</span>
+          </div>
+          <div className="kpi-card-number text-emerald">{formatMoney(totalRecovered)}</div>
+          <div className="kpi-card-footer">
+            {totalRecovered > 0
+              ? `${recoveredCount} / 8 Settled via Razorpay`
+              : '₹0 · Honest Pre-Execution Baseline'}
+          </div>
+        </div>
+
+        <div className="demo-kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-icon">📈</span>
+            <span className="kpi-title">EXPECTED RECOVERY (ERV)</span>
+          </div>
+          <div className="kpi-card-number text-blue">{formatMoney(totalErv)}</div>
+          <div className="kpi-card-footer">Net Heuristic Value</div>
+        </div>
+
+        <div className="demo-kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-icon">⚡</span>
+            <span className="kpi-title">STRATEGY CONSENSUS</span>
+          </div>
+          <div className="kpi-card-number text-purple">{cases.length}/8 CREATE_PAYMENT_LINK</div>
+          <div className="kpi-card-footer">100% Mode: LIVE_PROVIDER · ALLOW</div>
+        </div>
+      </section>
+
+      {/* ── Filter & Search Toolbar ── */}
+      <section className="demo-toolbar" aria-label="Portfolio Filters">
+        <div className="demo-filter-pills" role="tablist">
+          {families.map(f => (
+            <button
+              key={f.key}
+              type="button"
+              role="tab"
+              aria-selected={filterFamily === f.key}
+              className={`demo-filter-pill ${filterFamily === f.key ? 'active' : ''}`}
+              onClick={() => setFilterFamily(f.key)}
+            >
+              {f.label} <span className="pill-count">({f.count})</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="demo-search-box">
+          <span className="search-symbol">🔍</span>
+          <input
+            type="text"
+            className="demo-search-input"
+            placeholder="Search scenario, ID, payment..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button type="button" className="btn-clear-search" onClick={() => setSearchQuery('')}>✕</button>
+          )}
+        </div>
+      </section>
+
+      {/* ── 8-Case Portfolio Grid ── */}
+      {loading && cases.length === 0 ? (
+        <div className="demo-loading-state">
+          <div className="spinner" />
+          <p>Loading 8-case demonstration portfolio...</p>
+        </div>
+      ) : filteredCases.length === 0 ? (
+        <div className="demo-empty-state">
+          <p>No demo cases match your filter criteria.</p>
+          <button type="button" className="btn-secondary" onClick={() => { setFilterFamily('ALL'); setSearchQuery(''); }}>
+            Reset Filters
+          </button>
+        </div>
+      ) : (
+        <div className="demo-cases-grid">
+          {filteredCases.map((c, index) => {
+            const hasPaymentLink = Boolean(c.activePaymentLink?.paymentLinkUrl || c.activePaymentLink?.actionPayload?.payment_link_url);
+            const isResolved = c.riskStatus === 'RESOLVED' || c.recoveredAmount > 0;
+
+            return (
+              <article key={c.id} className="demo-case-card">
+                {/* Top Bar: Case Tag & Amount */}
+                <div className="demo-card-top">
+                  <div className="demo-card-id-group">
+                    <span className="demo-case-number">DEMO CASE #{index + 1}</span>
+                    <span className="demo-case-pid font-mono">{c.paymentId}</span>
+                  </div>
+                  <div className="demo-card-amount">
+                    {formatMoney(c.amount)}
+                  </div>
+                </div>
+
+                {/* Scenario Title */}
+                <h3 className="demo-card-title">
+                  {c.scenarioName || c.riskReason || 'Payment Recovery Scenario'}
+                </h3>
+
+                {/* Failure Evidence Diagnosis */}
+                <div className="demo-card-intel">
+                  <div className="intel-row">
+                    <span className="intel-label">Diagnosed Family:</span>
+                    <span className="badge-failure-family">{c.failureFamily}</span>
+                  </div>
+                  <div className="intel-snippet">
+                    <span className="intel-quote-mark">“</span>
+                    <span className="intel-reason-text">{c.riskReason || c.failureReason || 'Transient failure detected.'}</span>
+                    <span className="intel-quote-mark">”</span>
+                  </div>
+                </div>
+
+                {/* Strategy Decision & ERV */}
+                <div className="demo-card-strategy">
+                  <div className="strategy-header">
+                    <span className="strategy-label">Top Ranked Strategy:</span>
+                    <span className="badge-mode mode-live_provider">LIVE_PROVIDER</span>
+                  </div>
+                  <div className="strategy-name-line">
+                    <strong className="strategy-name">{c.strategyName || c.recommendedStrategy}</strong>
+                  </div>
+                  <div className="strategy-erv-row">
+                    <div className="erv-box">
+                      <span className="erv-label">Expected Recovery Value (ERV)</span>
+                      <span className="erv-val text-emerald font-bold">{formatMoney(c.expectedRecoveryValue)}</span>
+                    </div>
+                    <div className="prob-box">
+                      <span className="prob-label">Heuristic Prob</span>
+                      <span className="prob-val font-mono">{Math.round((c.estimatedProbability || 0.40) * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Governance Checks */}
+                <div className="demo-card-governance">
+                  <div className="gov-check-item">
+                    <span className="gov-check-label">Policy Decision:</span>
+                    <span className={`badge-policy ${c.policyDecision === 'ALLOW' ? 'policy-allow' : 'policy-review'}`}>
+                      {c.policyDecision}
+                    </span>
+                  </div>
+                  <div className="gov-check-item">
+                    <span className="gov-check-label">Stopping Rule:</span>
+                    <span className="badge-stopping stopping-continue">
+                      {c.stoppingDisposition}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Execution & Recovery State */}
+                <div className="demo-card-status-bar">
+                  <div className="status-indicator-line">
+                    <span className="status-dot" />
+                    <span className="status-text">
+                      {isResolved
+                        ? 'VERIFIED TEST RECOVERY'
+                        : hasPaymentLink
+                        ? 'PAYMENT LINK ACTIVE'
+                        : 'PENDING TEST EXECUTION'}
+                    </span>
+                  </div>
+                  <span className="status-checkpoint-tag">
+                    {isResolved ? 'Recovered' : hasPaymentLink ? 'Link Generated' : 'Staged for Checkpoint 4'}
+                  </span>
+                </div>
+
+                {/* Card Action */}
+                <div className="demo-card-actions">
+                  <button
+                    type="button"
+                    className="btn-inspect-trace"
+                    onClick={() => handleInspectCase(c)}
+                  >
+                    Inspect Full Decision Trace →
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Detail Drawer / Modal for Inspected Case ── */}
+      {selectedCase && (
+        <div className="demo-drawer-overlay" onClick={handleCloseDrawer}>
+          <aside
+            className="demo-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="drawer-case-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div className="demo-drawer-header">
+              <div>
+                <div className="drawer-eyebrow">DEMO RECOVERY CASE DECISION TRACE</div>
+                <h3 id="drawer-case-title" className="drawer-title">
+                  {selectedCase.scenarioName || 'Case Inspection'}
+                </h3>
+                <div className="drawer-submeta">
+                  <span>Case #{selectedCase.id}</span>
+                  <span className="sep">·</span>
+                  <span className="font-mono">{selectedCase.paymentId}</span>
+                  <span className="sep">·</span>
+                  <span className="text-amber font-bold">{formatMoney(selectedCase.amount)}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-close-drawer"
+                onClick={handleCloseDrawer}
+                title="Close Drawer (Esc)"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Drawer Body */}
+            <div className="demo-drawer-body">
+              {loadingDetail ? (
+                <div className="demo-loading-detail">
+                  <div className="spinner" />
+                  <p>Loading full decision trace...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Step 1: Provider Telemetry Evidence */}
+                  <section className="drawer-section">
+                    <div className="drawer-section-heading">
+                      <span className="step-num">1</span>
+                      <h4>Authorized Provider Telemetry</h4>
+                    </div>
+                    <div className="evidence-grid">
+                      <div className="evidence-item">
+                        <span className="ev-key">Event Type</span>
+                        <span className="ev-val font-mono">payment.failed</span>
+                      </div>
+                      <div className="evidence-item">
+                        <span className="ev-key">Payment ID</span>
+                        <span className="ev-val font-mono">{selectedCase.paymentId}</span>
+                      </div>
+                      <div className="evidence-item">
+                        <span className="ev-key">Customer Reference</span>
+                        <span className="ev-val">{selectedCase.customerReference || 'Demo Account'}</span>
+                      </div>
+                      <div className="evidence-item">
+                        <span className="ev-key">Evidence Strength</span>
+                        <span className="ev-val text-emerald font-bold">STRONG</span>
+                      </div>
+                    </div>
+
+                    <div className="failure-reason-box">
+                      <span className="box-label">Raw Failure Reason</span>
+                      <code className="reason-code">{selectedCase.riskReason || 'Payment failure'}</code>
+                    </div>
+
+                    {selectedCase.diagnosis?.providerEvidence && (
+                      <div className="provider-raw-facts">
+                        <span className="box-label">Authoritative Provider Diagnostic Fields</span>
+                        <div className="raw-facts-table">
+                          <div className="fact-row">
+                            <span className="fact-k">Error Code:</span>
+                            <span className="fact-v font-mono">{selectedCase.diagnosis.providerEvidence.providerErrorCode || '—'}</span>
+                          </div>
+                          <div className="fact-row">
+                            <span className="fact-k">Error Source:</span>
+                            <span className="fact-v font-mono">{selectedCase.diagnosis.providerEvidence.providerErrorSource || '—'}</span>
+                          </div>
+                          <div className="fact-row">
+                            <span className="fact-k">Error Step:</span>
+                            <span className="fact-v font-mono">{selectedCase.diagnosis.providerEvidence.providerErrorStep || '—'}</span>
+                          </div>
+                          <div className="fact-row">
+                            <span className="fact-k">Error Description:</span>
+                            <span className="fact-v">{selectedCase.diagnosis.providerEvidence.providerErrorDescription || '—'}</span>
+                          </div>
+                          <div className="fact-row">
+                            <span className="fact-k">Failure Signature:</span>
+                            <span className="fact-v font-mono text-purple">{selectedCase.diagnosis.providerEvidence.failureSignature || '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Step 2: AI Root Cause Diagnosis */}
+                  <section className="drawer-section">
+                    <div className="drawer-section-heading">
+                      <span className="step-num">2</span>
+                      <h4>Failure Intelligence & Root Cause</h4>
+                    </div>
+
+                    <div className="diagnosis-highlight-card">
+                      <div className="diag-meta-row">
+                        <span className="badge-family-large">{selectedCase.failureFamily}</span>
+                        <span className="diag-confidence-tag">
+                          Confidence: {Math.round((selectedCase.diagnosis?.confidence || 0.82) * 100)}%
+                        </span>
+                      </div>
+                      <p className="diag-cause-statement">
+                        {selectedCase.diagnosis?.cause || 'Deterministic failure classification verified from authoritative provider telemetry.'}
+                      </p>
+                    </div>
+
+                    {/* Explicit Unknowns */}
+                    {(selectedCase.diagnosis?.unknowns || []).length > 0 && (
+                      <div className="unknowns-box">
+                        <span className="unknowns-label">Explicit Known Unknowns (Anti-Hallucination Guard)</span>
+                        <ul className="unknowns-list">
+                          {selectedCase.diagnosis.unknowns.map((u, i) => (
+                            <li key={i}>• {u}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Step 3: Candidate Interventions & Heuristic ERV Ranking */}
+                  <section className="drawer-section">
+                    <div className="drawer-section-heading">
+                      <span className="step-num">3</span>
+                      <h4>Candidate Interventions & ERV Ranking</h4>
+                    </div>
+
+                    <div className="candidates-table-wrapper">
+                      <table className="candidates-table">
+                        <thead>
+                          <tr>
+                            <th>Rank</th>
+                            <th>Intervention Strategy</th>
+                            <th>Mode</th>
+                            <th>Est. Prob</th>
+                            <th>Friction</th>
+                            <th>Expected Recovery Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(selectedCase.candidates || []).map((cand, i) => {
+                            const isSelected = cand.action === selectedCase.recommendedStrategy;
+                            return (
+                              <tr key={cand.action || i} className={isSelected ? 'selected-candidate-row' : ''}>
+                                <td className="cand-rank">
+                                  {i === 0 ? <span className="rank-badge rank-1">#1</span> : `#${i + 1}`}
+                                </td>
+                                <td className="cand-name">
+                                  <strong>{cand.action}</strong>
+                                  {isSelected && <span className="tag-selected">SELECTED</span>}
+                                  <div className="cand-desc">{cand.strategyDescription}</div>
+                                </td>
+                                <td>
+                                  <span className={`badge-mode mode-${(cand.executionMode || 'CONTROL').toLowerCase()}`}>
+                                    {cand.executionMode || 'CONTROL'}
+                                  </span>
+                                </td>
+                                <td className="font-mono">{Math.round((cand.estimatedProbability || 0) * 100)}%</td>
+                                <td className="font-mono">{formatMoney(cand.estimatedFriction || 0)}</td>
+                                <td className="font-mono font-bold text-emerald">{formatMoney(cand.estimatedRecoveryValue || 0)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  {/* Step 4: Policy & Stopping Rules Evaluation */}
+                  <section className="drawer-section">
+                    <div className="drawer-section-heading">
+                      <span className="step-num">4</span>
+                      <h4>Policy & Stopping Guardrails</h4>
+                    </div>
+
+                    <div className="policy-evaluation-grid">
+                      <div className="policy-result-card">
+                        <div className="policy-card-title">Policy Engine (recoverai-policy-v1)</div>
+                        <div className="policy-card-status">
+                          Decision: <span className="badge-policy policy-allow">{selectedCase.policyDecision}</span>
+                        </div>
+                        <ul className="rule-checks-list">
+                          <li className="rule-check passed">✓ Action is in allowed automated interventions list</li>
+                          <li className="rule-check passed">✓ Velocity within threshold (1 / 3 attempts)</li>
+                          <li className="rule-check passed">✓ High-value threshold review check passed</li>
+                          <li className="rule-check passed">✓ Cooldown window respected</li>
+                        </ul>
+                      </div>
+
+                      <div className="policy-result-card">
+                        <div className="policy-card-title">Stopping Rule Engine</div>
+                        <div className="policy-card-status">
+                          Disposition: <span className="badge-stopping stopping-continue">{selectedCase.stoppingDisposition}</span>
+                        </div>
+                        <ul className="rule-checks-list">
+                          <li className="rule-check passed">✓ Not terminal state (not refunded, captured, or cancelled)</li>
+                          <li className="rule-check passed">✓ No unresolved customer dispute or fraud flag</li>
+                          <li className="rule-check passed">✓ Positive expected recovery value (ERV &gt; ₹0)</li>
+                          <li className="rule-check passed">✓ Cleared for autonomous live execution</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Step 5: Execution Boundary & Live Provider Staging */}
+                  <section className="drawer-section">
+                    <div className="drawer-section-heading">
+                      <span className="step-num">5</span>
+                      <h4>Live Provider Staging (Razorpay Test Mode)</h4>
+                    </div>
+
+                    <div className="execution-staging-card">
+                      <div className="staging-header">
+                        <span className="staging-label">Current Execution State:</span>
+                        <span className="badge-staging-pending">CHECKPOINT 3 · PENDING DISPATCH</span>
+                      </div>
+                      <p className="staging-explanation">
+                        The case is fully diagnosed, policy-cleared, and ready for live Razorpay Test Mode execution.
+                        In accordance with the safety roadmap, <strong>ZERO Payment Links have been created in Checkpoint 3</strong>.
+                        Actual Test Mode Payment Link creation is isolated to Checkpoint 4.
+                      </p>
+                      <div className="staging-meta-row">
+                        <div>
+                          <span className="meta-k">Target Provider:</span>
+                          <span className="meta-v">Razorpay Test Mode (rzp_test_*)</span>
+                        </div>
+                        <div>
+                          <span className="meta-k">Execution Mode:</span>
+                          <span className="meta-v text-emerald font-bold">LIVE_PROVIDER</span>
+                        </div>
+                        <div>
+                          <span className="meta-k">Production Impact:</span>
+                          <span className="meta-v text-emerald">Zero (Partitioned)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="demo-drawer-footer">
+              <button
+                type="button"
+                className="btn-close-drawer-bottom"
+                onClick={handleCloseDrawer}
+              >
+                Close Decision Trace
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

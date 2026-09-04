@@ -255,7 +255,8 @@ function createEscalationController(repository, { diagnosisService = null, razor
 
     listPending: async (req, res, next) => {
       try {
-        const escalations = await repository.listPendingEscalations();
+        const isDemo = req.query.demo === 'true';
+        const escalations = await repository.listPendingEscalations({ isDemo });
         return res.status(200).json({ escalations });
       } catch (err) {
         next(err);

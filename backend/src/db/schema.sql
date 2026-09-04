@@ -51,12 +51,15 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
   locked_by TEXT,
   next_retry_at TIMESTAMPTZ,
   last_autonomy_error TEXT,
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
   first_detected_at TIMESTAMPTZ NOT NULL,
   last_event_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS recovery_cases_is_demo_idx ON recovery_cases (is_demo);
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS recovered_amount BIGINT NOT NULL DEFAULT 0 CHECK (recovered_amount >= 0);
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS autonomy_status TEXT NOT NULL DEFAULT 'INACTIVE';
 ALTER TABLE recovery_cases ADD COLUMN IF NOT EXISTS autonomy_attempts INTEGER NOT NULL DEFAULT 0 CHECK (autonomy_attempts >= 0);

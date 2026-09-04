@@ -62,11 +62,12 @@ async function processEvent(repository, event) {
   const isAutonomyEnabled = Boolean(environment.AUTONOMOUS_RECOVERY_ENABLED);
 
   if (!existingCase) {
-    const autonomyStatus = (isAutonomyEnabled && assessment.riskStatus === 'RECOVERABLE') ? 'QUEUED' : 'INACTIVE';
+    const isDemo = event.isDemo !== undefined ? Boolean(event.isDemo) : false;
+    const autonomyStatus = (!isDemo && isAutonomyEnabled && assessment.riskStatus === 'RECOVERABLE') ? 'QUEUED' : 'INACTIVE';
     const recoveryCase = await repository.createCase({
       paymentId: event.paymentId, orderId: event.orderId, amount: event.amount, currency: event.currency,
       customerReference: event.customerReference, riskStatus: assessment.riskStatus, riskReason: assessment.riskReason,
-      riskLevel: assessment.riskLevel, autonomyStatus, firstDetectedAt: event.timestamp, lastEventAt: event.timestamp
+      riskLevel: assessment.riskLevel, autonomyStatus, isDemo, firstDetectedAt: event.timestamp, lastEventAt: event.timestamp
     });
     await repository.addAudit(recoveryCase.id, 'EVENT_RECEIVED', `Received ${event.eventType}`, { eventId: event.eventId });
     await repository.addAudit(recoveryCase.id, 'RISK_DETECTED', assessment.riskReason, { failureCount: assessment.failureCount, riskLevel: assessment.riskLevel });
@@ -78,6 +79,7 @@ async function processEvent(repository, event) {
   }
 
   const shouldQueue = isAutonomyEnabled &&
+    !existingCase.isDemo &&
     assessment.riskStatus === 'RECOVERABLE' &&
     !['CLAIMED', 'COMPLETED', 'REVIEW_REQUIRED'].includes(existingCase.autonomyStatus);
 

@@ -50,6 +50,7 @@ class InMemoryRecoveryRepository {
   async createCase(data) {
     const recoveryCase = {
       id: this.nextCaseId++,
+      isDemo: Boolean(data.isDemo),
       actionStatus: 'NOT_STARTED',
       outcome: null,
       recoveredAmount: 0,
@@ -76,9 +77,10 @@ class InMemoryRecoveryRepository {
     return { ...recoveryCase };
   }
 
-  async listPendingEscalations() {
+  async listPendingEscalations({ isDemo = false } = {}) {
+    const isDemoBool = Boolean(isDemo);
     return this.cases
-      .filter((c) => c.escalationStatus === 'PENDING_APPROVAL' || c.autonomyStatus === 'REVIEW_REQUIRED')
+      .filter((c) => Boolean(c.isDemo) === isDemoBool && (c.escalationStatus === 'PENDING_APPROVAL' || c.autonomyStatus === 'REVIEW_REQUIRED'))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .map((c) => ({ ...c }));
   }
@@ -95,6 +97,7 @@ class InMemoryRecoveryRepository {
     const currentTime = new Date(now).getTime();
     const candidate = this.cases
       .filter((c) => {
+        if (c.isDemo) return false;
         if (c.autonomyStatus === 'QUEUED') {
           return !c.lockedUntil || new Date(c.lockedUntil).getTime() <= currentTime;
         }
@@ -280,28 +283,33 @@ class InMemoryRecoveryRepository {
     return this.outcomes.filter((o) => o.recoveryCaseId === Number(recoveryCaseId)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
 
-  async getRecoveryMetrics() {
-    const openCases = this.cases.filter((c) => ['OPEN', 'RECOVERABLE'].includes(c.riskStatus));
-    const resolvedCases = this.cases.filter((c) => c.riskStatus === 'RESOLVED');
+  async getRecoveryMetrics({ isDemo = false } = {}) {
+    const isDemoBool = Boolean(isDemo);
+    const filteredCases = this.cases.filter((c) => Boolean(c.isDemo) === isDemoBool);
+    const caseIds = new Set(filteredCases.map((c) => c.id));
+
+    const openCases = filteredCases.filter((c) => ['OPEN', 'RECOVERABLE'].includes(c.riskStatus));
+    const resolvedCases = filteredCases.filter((c) => c.riskStatus === 'RESOLVED');
     const revenueAtRisk = openCases.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
-    const verifiedOutcomes = this.outcomes.filter((o) => o.verified === true);
+    const verifiedOutcomes = this.outcomes.filter((o) => o.verified === true && caseIds.has(o.recoveryCaseId));
     const revenueRecovered = verifiedOutcomes.reduce((sum, o) => sum + Number(o.amountPaid || 0), 0);
 
     const totalPotential = revenueAtRisk + revenueRecovered;
     const recoveryRate = totalPotential > 0 ? Number((revenueRecovered / totalPotential).toFixed(4)) : 0;
 
-    const executedActions = this.actions.filter((a) => ['EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status));
+    const filteredActions = this.actions.filter((a) => caseIds.has(a.recoveryCaseId));
+    const executedActions = filteredActions.filter((a) => ['EXECUTED', 'OUTCOME_CONFIRMED'].includes(a.status));
     const confirmedRecoveries = verifiedOutcomes.length;
-    const pendingRecoveries = this.actions.filter((a) => a.status === 'EXECUTED').length;
-    const blockedCases = this.actions.filter((a) => a.status === 'BLOCKED').length;
-    const reviewRequiredCases = this.actions.filter((a) => a.status === 'REVIEW_REQUIRED').length;
+    const pendingRecoveries = filteredActions.filter((a) => a.status === 'EXECUTED').length;
+    const blockedCases = filteredActions.filter((a) => a.status === 'BLOCKED').length;
+    const reviewRequiredCases = filteredActions.filter((a) => a.status === 'REVIEW_REQUIRED').length;
 
     return {
       revenue_at_risk: revenueAtRisk,
       revenue_recovered: revenueRecovered,
       recovery_rate: recoveryRate,
-      total_cases: this.cases.length,
+      total_cases: filteredCases.length,
       open_cases: openCases.length,
       resolved_cases: resolvedCases.length,
       executed_actions: executedActions.length,
@@ -312,8 +320,11 @@ class InMemoryRecoveryRepository {
     };
   }
 
-  async listCases() {
-    return [...this.cases].sort((a, b) => new Date(b.lastEventAt) - new Date(a.lastEventAt));
+  async listCases({ isDemo = false } = {}) {
+    const isDemoBool = Boolean(isDemo);
+    return this.cases
+      .filter((c) => Boolean(c.isDemo) === isDemoBool)
+      .sort((a, b) => new Date(b.lastEventAt) - new Date(a.lastEventAt));
   }
 
   async getCaseDetail(id) {
@@ -328,7 +339,13 @@ class InMemoryRecoveryRepository {
     };
   }
 
-  async getAllCases() { return [...this.cases]; }
+  async getAllCases({ isDemo } = {}) {
+    if (isDemo !== undefined) {
+      const isDemoBool = Boolean(isDemo);
+      return this.cases.filter((c) => Boolean(c.isDemo) === isDemoBool);
+    }
+    return [...this.cases];
+  }
   async getAllActions() { return [...this.actions]; }
   async getAllOutcomes() { return [...this.outcomes]; }
   async getAllDiagnoses() { return [...(this.aiDiagnoses || [])]; }

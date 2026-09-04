@@ -11,6 +11,7 @@ const { createWhatsAppWebhookRouter } = require('./routes/whatsappWebhooks');
 const { createBatchRouter } = require('./routes/batch');
 const { createAnalyticsRouter } = require('./routes/analytics');
 const { createRecoveryLabRouter } = require('./routes/recoveryLab');
+const { createDemoRouter } = require('./routes/demo');
 const { createDiagnosisService } = require('./ai/diagnosisService');
 const { createRazorpayClient } = require('./services/razorpayClient');
 const { createWhatsAppProvider } = require('./services/providers/whatsappProvider');
@@ -28,7 +29,10 @@ function createApp(repository, { diagnosisService = createDiagnosisService(), ra
 
   app.get(['/health', '/api/health'], (request, response) => response.json({ status: 'ok' }));
   app.get('/api/recovery/metrics', async (request, response, next) => {
-    try { response.json({ metrics: await repository.getRecoveryMetrics() }); } catch (error) { next(error); }
+    try {
+      const isDemo = request.query.demo === 'true';
+      response.json({ metrics: await repository.getRecoveryMetrics({ isDemo }) });
+    } catch (error) { next(error); }
   });
   app.get('/api/recovery/playbooks', (request, response) => {
     const { getAllPlaybooks } = require('./playbooks/playbookDefinitions');
@@ -60,6 +64,7 @@ function createApp(repository, { diagnosisService = createDiagnosisService(), ra
   app.use('/api/batch', createBatchRouter());
   app.use('/api/recovery/analytics', createAnalyticsRouter(repository));
   app.use('/api/recovery/lab', createRecoveryLabRouter());
+  app.use('/api/demo', createDemoRouter(repository, { diagnosisService }));
 
   // Serve static assets from frontend/dist in production/unified mode
   const distPath = path.resolve(__dirname, '../../frontend/dist');

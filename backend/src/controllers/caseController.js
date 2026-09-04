@@ -9,11 +9,15 @@ function createCaseController(repository, diagnosisService, razorpayClient, what
   const communicationController = createCommunicationController(repository, whatsappProvider);
   return {
     list: async (request, response, next) => {
-      try { response.json({ cases: await repository.listCases() }); } catch (error) { next(error); }
+      try {
+        const isDemo = request.query.demo === 'true';
+        response.json({ cases: await repository.listCases({ isDemo }) });
+      } catch (error) { next(error); }
     },
     getMetrics: async (request, response, next) => {
       try {
-        const metrics = await repository.getRecoveryMetrics();
+        const isDemo = request.query.demo === 'true';
+        const metrics = await repository.getRecoveryMetrics({ isDemo });
         return response.json({ metrics });
       } catch (error) { return next(error); }
     },

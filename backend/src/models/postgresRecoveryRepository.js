@@ -20,6 +20,7 @@ function mapCase(row) {
     id: Number(row.id), paymentId: row.payment_id, orderId: row.order_id, amount: Number(row.amount), currency: row.currency,
     customerReference: row.customer_reference, riskStatus: row.risk_status, riskReason: row.risk_reason, riskLevel: row.risk_level,
     actionStatus: row.action_status, outcome: row.outcome, recoveredAmount: Number(row.recovered_amount || 0),
+    isDemo: Boolean(row.is_demo),
     autonomyStatus: row.autonomy_status || 'INACTIVE',
     autonomyAttempts: Number(row.autonomy_attempts || 0),
     autonomyLeaseToken: row.autonomy_lease_token || null,
@@ -159,10 +160,11 @@ class PostgresRecoveryRepository {
   }
 
   async createCase(data) {
+    const isDemo = data.isDemo !== undefined ? Boolean(data.isDemo) : false;
     const result = await this.pool.query(
-      `INSERT INTO recovery_cases (payment_id, order_id, amount, currency, customer_reference, risk_status, risk_reason, risk_level, autonomy_status, first_detected_at, last_event_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'INACTIVE'),$10,$11) RETURNING *`,
-      [data.paymentId, data.orderId, data.amount, data.currency, data.customerReference, data.riskStatus, data.riskReason, data.riskLevel, data.autonomyStatus || null, data.firstDetectedAt, data.lastEventAt]
+      `INSERT INTO recovery_cases (payment_id, order_id, amount, currency, customer_reference, risk_status, risk_reason, risk_level, autonomy_status, is_demo, first_detected_at, last_event_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'INACTIVE'),$10,$11,$12) RETURNING *`,
+      [data.paymentId, data.orderId, data.amount, data.currency, data.customerReference, data.riskStatus, data.riskReason, data.riskLevel, data.autonomyStatus || null, isDemo, data.firstDetectedAt, data.lastEventAt]
     );
     return mapCase(result.rows[0]);
   }
@@ -223,9 +225,10 @@ class PostgresRecoveryRepository {
     return mapCase(result.rows[0]);
   }
 
-  async listPendingEscalations() {
+  async listPendingEscalations({ isDemo = false } = {}) {
     const result = await this.pool.query(
-      "SELECT * FROM recovery_cases WHERE escalation_status = 'PENDING_APPROVAL' OR autonomy_status = 'REVIEW_REQUIRED' ORDER BY created_at DESC"
+      "SELECT * FROM recovery_cases WHERE (escalation_status = 'PENDING_APPROVAL' OR autonomy_status = 'REVIEW_REQUIRED') AND is_demo = $1 ORDER BY created_at DESC",
+      [Boolean(isDemo)]
     );
     return result.rows.map(mapCase);
   }
@@ -244,6 +247,7 @@ class PostgresRecoveryRepository {
           OR
           (autonomy_status = 'CLAIMED' AND locked_until IS NOT NULL AND locked_until <= NOW())
         )
+        AND is_demo = false
         ORDER BY created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -472,7 +476,8 @@ class PostgresRecoveryRepository {
     return result.rows.map(mapOutcome);
   }
 
-  async getRecoveryMetrics() {
+  async getRecoveryMetrics({ isDemo = false } = {}) {
+    const isDemoBool = Boolean(isDemo);
     const [casesRes, outcomesRes, actionsRes] = await Promise.all([
       this.pool.query(`
         SELECT
@@ -481,21 +486,26 @@ class PostgresRecoveryRepository {
           COUNT(*) FILTER (WHERE risk_status = 'RESOLVED') AS resolved_cases,
           COALESCE(SUM(amount) FILTER (WHERE risk_status IN ('OPEN', 'RECOVERABLE')), 0) AS revenue_at_risk
         FROM recovery_cases
-      `),
+        WHERE is_demo = $1
+      `, [isDemoBool]),
       this.pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE verified = true) AS confirmed_recoveries,
-          COALESCE(SUM(amount_paid) FILTER (WHERE verified = true), 0) AS revenue_recovered
-        FROM recovery_outcomes
-      `),
+          COUNT(*) FILTER (WHERE o.verified = true) AS confirmed_recoveries,
+          COALESCE(SUM(o.amount_paid) FILTER (WHERE o.verified = true), 0) AS revenue_recovered
+        FROM recovery_outcomes o
+        JOIN recovery_cases c ON o.recovery_case_id = c.id
+        WHERE c.is_demo = $1
+      `, [isDemoBool]),
       this.pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE status IN ('EXECUTED', 'OUTCOME_CONFIRMED')) AS executed_actions,
-          COUNT(*) FILTER (WHERE status = 'EXECUTED') AS pending_recoveries,
-          COUNT(*) FILTER (WHERE status = 'BLOCKED') AS blocked_cases,
-          COUNT(*) FILTER (WHERE status = 'REVIEW_REQUIRED') AS review_required_cases
-        FROM recovery_actions
-      `)
+          COUNT(*) FILTER (WHERE a.status IN ('EXECUTED', 'OUTCOME_CONFIRMED')) AS executed_actions,
+          COUNT(*) FILTER (WHERE a.status = 'EXECUTED') AS pending_recoveries,
+          COUNT(*) FILTER (WHERE a.status = 'BLOCKED') AS blocked_cases,
+          COUNT(*) FILTER (WHERE a.status = 'REVIEW_REQUIRED') AS review_required_cases
+        FROM recovery_actions a
+        JOIN recovery_cases c ON a.recovery_case_id = c.id
+        WHERE c.is_demo = $1
+      `, [isDemoBool])
     ]);
 
     const casesRow = casesRes.rows[0];
@@ -522,8 +532,8 @@ class PostgresRecoveryRepository {
     };
   }
 
-  async listCases() {
-    const result = await this.pool.query('SELECT * FROM recovery_cases ORDER BY last_event_at DESC');
+  async listCases({ isDemo = false } = {}) {
+    const result = await this.pool.query('SELECT * FROM recovery_cases WHERE is_demo = $1 ORDER BY last_event_at DESC', [Boolean(isDemo)]);
     return result.rows.map(mapCase);
   }
 
@@ -546,7 +556,11 @@ class PostgresRecoveryRepository {
     };
   }
 
-  async getAllCases() {
+  async getAllCases({ isDemo } = {}) {
+    if (isDemo !== undefined) {
+      const result = await this.pool.query('SELECT * FROM recovery_cases WHERE is_demo = $1 ORDER BY last_event_at DESC', [Boolean(isDemo)]);
+      return result.rows.map(mapCase);
+    }
     const result = await this.pool.query('SELECT * FROM recovery_cases ORDER BY last_event_at DESC');
     return result.rows.map(mapCase);
   }

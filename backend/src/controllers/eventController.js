@@ -59,6 +59,7 @@ function normalizeEvent(input) {
   const event = eventSchema.parse(input);
   return {
     ...event,
+    isDemo: false,
     orderId: event.orderId ?? null,
     customerReference: event.customerReference ?? event.cartReference ?? null,
     failureReason: event.failureReason ?? null,

@@ -168,7 +168,8 @@ function deriveFailureFamily(diagnosis, recoveryCase) {
 }
 
 function extractAttributedOutcomes({ cases = [], actions = [], outcomes = [], diagnoses = [] } = {}) {
-  const caseMap = new Map(cases.map((c) => [c.id, c]));
+  const nonDemoCases = cases.filter((c) => !c.isDemo);
+  const caseMap = new Map(nonDemoCases.map((c) => [c.id, c]));
   const diagnosisMap = new Map(diagnoses.map((d) => [d.recoveryCaseId, d]));
 
   // Build verified outcome map keyed by recoveryActionId
@@ -183,6 +184,9 @@ function extractAttributedOutcomes({ cases = [], actions = [], outcomes = [], di
   for (const outcome of outcomes) {
     if (!outcome.recoveryActionId) {
       unverifiedOutcomesCount.unmatched++;
+      continue;
+    }
+    if (outcome.recoveryCaseId && !caseMap.has(Number(outcome.recoveryCaseId))) {
       continue;
     }
     if (outcome.verified && outcome.outcome === 'PAID') {
@@ -214,6 +218,9 @@ function extractAttributedOutcomes({ cases = [], actions = [], outcomes = [], di
     }
 
     const recoveryCase = caseMap.get(action.recoveryCaseId);
+    if (!recoveryCase || recoveryCase.isDemo) {
+      continue;
+    }
     const diagnosis = diagnosisMap.get(action.recoveryCaseId);
     const failureFamily = deriveFailureFamily(diagnosis, recoveryCase);
 
@@ -265,7 +272,7 @@ function extractAttributedOutcomes({ cases = [], actions = [], outcomes = [], di
   return {
     statsByPair,
     summary: {
-      totalCases: cases.length,
+      totalCases: nonDemoCases.length,
       totalActions: actions.length,
       totalOutcomes: outcomes.length,
       verifiedOutcomesCount: verifiedOutcomeByAction.size,
@@ -282,7 +289,10 @@ function extractAttributedOutcomes({ cases = [], actions = [], outcomes = [], di
  * Normalizes repository query results into memory arrays.
  */
 async function fetchRepositoryData(repository) {
-  const cases = repository.getAllCases ? await repository.getAllCases() : (repository.cases ? [...repository.cases] : await repository.listCases());
+  const allCases = repository.getAllCases
+    ? await repository.getAllCases({ isDemo: false })
+    : (repository.cases ? [...repository.cases] : await repository.listCases({ isDemo: false }));
+  const cases = allCases.filter((c) => !c.isDemo);
   const actions = repository.getAllActions ? await repository.getAllActions() : (repository.actions ? [...repository.actions] : []);
   const outcomes = repository.getAllOutcomes ? await repository.getAllOutcomes() : (repository.outcomes ? [...repository.outcomes] : []);
   const diagnoses = repository.getAllDiagnoses ? await repository.getAllDiagnoses() : (repository.diagnoses ? [...repository.diagnoses] : (repository.aiDiagnoses ? [...repository.aiDiagnoses] : []));
