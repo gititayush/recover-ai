@@ -18,6 +18,8 @@ const { getStrategy } = require('../strategies/strategyRegistry');
 const { evaluateStoppingCriteria } = require('../policy/stoppingEngine');
 const { evaluatePolicy } = require('../policy/policyEngine');
 const { executeSimulatedAction } = require('../actions/simulatedActionExecutor');
+const { executePaymentLink } = require('../actions/paymentLinkExecutor');
+const { SimulatedPaymentLinkAdapter } = require('./providers/simulatedPaymentLinkAdapter');
 
 const DEMO_SCENARIOS = Object.freeze({
   BANK_SWITCH_TIMEOUT: {
@@ -268,44 +270,27 @@ async function runScenario(scenarioId, options = {}) {
   let executionResult = null;
   if (policyEvaluation.decision === 'ALLOW' && topCandidate) {
     try {
-      if (topCandidate.action === 'SCHEDULE_RETRY_WINDOW') {
-        executionResult = await executeSimulatedAction(repository, {
+      if (topCandidate.action === 'CREATE_PAYMENT_LINK') {
+        const simulatedAdapter = new SimulatedPaymentLinkAdapter();
+        executionResult = await executePaymentLink(repository, {
           recoveryCase: detail.recoveryCase,
           diagnosis,
-          actionType: 'SCHEDULE_RETRY_WINDOW',
           events: detail.events,
+          razorpayClient: simulatedAdapter,
+          referenceId: `case_${recoveryCase.id}_v1`,
           now
         });
-      } else if (topCandidate.action === 'CREATE_PAYMENT_LINK') {
-        executionResult = {
-          executed: true,
-          action: {
-            actionType: 'CREATE_PAYMENT_LINK',
-            status: 'EXECUTED',
-            provider: 'simulated_lab',
-            providerActionId: `lab_plink_${recoveryCase.id}`,
-            amount: recoveryCase.amount,
-            currency: recoveryCase.currency
-          },
-          message: 'Alternative payment link recovery action executed in lab environment.'
-        };
-        await repository.createAction({
-          recoveryCaseId: recoveryCase.id,
-          actionType: 'CREATE_PAYMENT_LINK',
-          status: 'EXECUTED',
-          policyDecision: 'ALLOW',
-          policyVersion: policyEvaluation.policyVersion,
-          idempotencyKey: `lab_plink_${recoveryCase.id}_v1`,
-          provider: 'simulated_lab',
-          providerActionId: `lab_plink_${recoveryCase.id}`,
-          amount: recoveryCase.amount,
-          currency: recoveryCase.currency,
-          requestMetadata: { mode: 'lab_demonstration' }
-        });
-        await repository.addAudit(recoveryCase.id, 'ACTION_EXECUTED', 'Payment Link recovery executed in lab demonstration', {
-          actionType: 'CREATE_PAYMENT_LINK',
-          mode: 'lab'
-        });
+      } else {
+        const strategy = getStrategy(topCandidate.action);
+        if (strategy && strategy.executionMode === 'SIMULATED') {
+          executionResult = await executeSimulatedAction(repository, {
+            recoveryCase: detail.recoveryCase,
+            diagnosis,
+            actionType: topCandidate.action,
+            events: detail.events,
+            now
+          });
+        }
       }
     } catch (execErr) {
       executionResult = { executed: false, error: execErr.message };

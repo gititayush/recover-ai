@@ -32,6 +32,8 @@ async function executePaymentLink(repository, {
     throw new RecoveryExecutorError('Recovery case is required for execution.', 404);
   }
 
+  const providerName = razorpayClient?.providerName || 'razorpay';
+
   // 1. Fetch existing actions for idempotency check and policy evaluation
   const existingActions = await repository.findActionsByCaseId(recoveryCase.id);
 
@@ -94,7 +96,7 @@ async function executePaymentLink(repository, {
       policyDecision: policyDecision.decision,
       policyVersion: policyDecision.policyVersion,
       idempotencyKey,
-      provider: 'razorpay',
+      provider: providerName,
       amount: recoveryCase.amount,
       currency: recoveryCase.currency,
       requestMetadata: { reasons: policyDecision.reasons },
@@ -143,7 +145,7 @@ async function executePaymentLink(repository, {
             policyDecision: 'ALLOW',
             policyVersion: policyDecision.policyVersion,
             idempotencyKey: stableReferenceId,
-            provider: 'razorpay',
+            provider: providerName,
             providerActionId: providerLink.id,
             paymentLinkUrl: providerLink.short_url,
             amount: recoveryCase.amount,
@@ -194,7 +196,7 @@ async function executePaymentLink(repository, {
     policyDecision: 'ALLOW',
     policyVersion: policyDecision.policyVersion,
     idempotencyKey: stableReferenceId,
-    provider: 'razorpay',
+    provider: providerName,
     amount: recoveryCase.amount,
     currency: recoveryCase.currency,
     createdAt: now().toISOString(),

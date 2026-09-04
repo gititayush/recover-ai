@@ -90,6 +90,47 @@ describe('Recovery Lab — Isolated Failure Scenario Demonstration', () => {
       expect(data.executionResult.executed).toBe(true);
       expect(data.executionResult.actionType).toBe('CREATE_PAYMENT_LINK');
     });
+
+    it('executes CREATE_PAYMENT_LINK through real executePaymentLink lifecycle with two-phase audit trail', async () => {
+      const response = await request(app)
+        .post('/api/recovery/lab/run-scenario')
+        .send({ scenarioId: 'GATEWAY_TECHNICAL_FAILURE' })
+        .expect(200);
+
+      const data = response.body;
+      const traceTypes = data.decisionTrace.map((t) => t.type);
+
+      // Must record the full two-phase executor lifecycle:
+      expect(traceTypes).toContain('POLICY_EVALUATED');
+      expect(traceTypes).toContain('ACTION_EXECUTION_STARTED');
+      expect(traceTypes).toContain('ACTION_EXECUTED');
+
+      // The execution-started event must precede the execution-completed event
+      const startedIdx = traceTypes.indexOf('ACTION_EXECUTION_STARTED');
+      const executedIdx = traceTypes.indexOf('ACTION_EXECUTED');
+      expect(startedIdx).toBeGreaterThanOrEqual(0);
+      expect(executedIdx).toBeGreaterThan(startedIdx);
+
+      // Audit metadata confirms synthetic link identifier
+      const executedAudit = data.decisionTrace.find((t) => t.type === 'ACTION_EXECUTED');
+      expect(executedAudit.metadata.providerActionId).toMatch(/^lab_plink_/);
+      expect(executedAudit.metadata.paymentLinkUrl).toMatch(/^https:\/\/rzp\.io\/i\/lab_/);
+    });
+
+    it('records action provider as simulated_lab with explicit non-live synthetic URL', async () => {
+      const response = await request(app)
+        .post('/api/recovery/lab/run-scenario')
+        .send({ scenarioId: 'GATEWAY_TECHNICAL_FAILURE' })
+        .expect(200);
+
+      const data = response.body;
+      expect(data.executionResult.executed).toBe(true);
+      expect(data.executionResult.actionStatus).toBe('EXECUTED');
+
+      // Action executed in lab must show simulated mode in provenance
+      expect(data.provenance.productionMutation).toBe(false);
+      expect(data.provenance.liveFinancialAction).toBe(false);
+    });
   });
 
   describe('Scenario 4: UNKNOWN_FAILURE', () => {
@@ -132,7 +173,84 @@ describe('Recovery Lab — Isolated Failure Scenario Demonstration', () => {
     });
   });
 
+  describe('Non-Payment Simulated Strategies Execution', () => {
+    it('executes simulated strategies like CHECKOUT_RECOVERY through executeSimulatedAction', async () => {
+      const { executeSimulatedAction } = require('../src/actions/simulatedActionExecutor');
+      const testRepo = new InMemoryRecoveryRepository();
+
+      const { processEvent } = require('../src/services/eventService');
+      const eventResult = await processEvent(testRepo, {
+        eventId: 'evt_sim_chk_01',
+        eventType: 'checkout.payment_step_reached',
+        paymentId: 'chk_sim_test_01',
+        amount: 250000,
+        currency: 'INR',
+        failureReason: 'Checkout cart drop-off',
+        riskLevel: 'MEDIUM',
+        timestamp: new Date().toISOString()
+      });
+      const createdCase = eventResult.recoveryCase;
+
+      const execResult = await executeSimulatedAction(testRepo, {
+        recoveryCase: createdCase,
+        actionType: 'CHECKOUT_RECOVERY'
+      });
+
+      expect(execResult.executed).toBe(true);
+      expect(execResult.isSimulated).toBe(true);
+      expect(execResult.action.actionType).toBe('CHECKOUT_RECOVERY');
+      expect(execResult.action.status).toBe('EXECUTED');
+      expect(execResult.action.provider).toBe('simulated');
+
+      const actions = await testRepo.findActionsByCaseId(createdCase.id);
+      expect(actions).toHaveLength(1);
+      expect(actions[0].actionType).toBe('CHECKOUT_RECOVERY');
+    });
+  });
+
   describe('Isolation & Safety Guards', () => {
+    it('SimulatedPaymentLinkAdapter operates in 100% test mode with zero network calls', async () => {
+      const { SimulatedPaymentLinkAdapter } = require('../src/services/providers/simulatedPaymentLinkAdapter');
+      const adapter = new SimulatedPaymentLinkAdapter();
+
+      expect(adapter.isConfigured).toBe(true);
+      expect(adapter.isTestMode).toBe(true);
+      expect(adapter.providerName).toBe('simulated_lab');
+
+      const link = await adapter.createPaymentLink({
+        amount: 499900,
+        currency: 'INR',
+        description: 'Test simulated link',
+        referenceId: 'ref_safety_test_01'
+      });
+
+      expect(link.id).toBe('lab_plink_ref_safety_test_01');
+      expect(link.short_url).toBe('https://rzp.io/i/lab_ref_safety_test_01');
+      expect(link.amount).toBe(499900);
+      expect(link.currency).toBe('INR');
+      expect(link.rawResponse.simulated).toBe(true);
+      expect(link.rawResponse.mode).toBe('simulated_lab');
+
+      // Idempotency lookup
+      const retrieved = await adapter.getPaymentLinksByReferenceId('ref_safety_test_01');
+      expect(retrieved).toHaveLength(1);
+      expect(retrieved[0].id).toBe(link.id);
+    });
+
+    it('guarantees zero network calls (fetch is never invoked during Recovery Lab execution)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+      try {
+        await runScenario('GATEWAY_TECHNICAL_FAILURE');
+        await runScenario('BANK_SWITCH_TIMEOUT');
+        await runScenario('ALREADY_RECOVERED');
+
+        // Zero external HTTP requests were dispatched
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('returns 400 when scenarioId is missing', async () => {
       const response = await request(app)
         .post('/api/recovery/lab/run-scenario')
