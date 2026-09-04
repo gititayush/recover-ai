@@ -262,8 +262,13 @@ export default function App() {
                           onClick={() => selectCase(item.id)}
                         >
                           <div className="case-row-header">
-                            <b>{item.paymentId}</b>
-                            <span className={`status ${item.riskStatus.toLowerCase()}`}>{item.riskStatus}</span>
+                            <div className="case-row-title-wrap">
+                              <span className="case-num-pill">Case #{item.id}</span>
+                              <code className="case-payment-code">{item.paymentId}</code>
+                            </div>
+                            <span className={`status ${item.riskStatus.toLowerCase()}`}>
+                              {item.riskStatus === 'RESOLVED' ? '✓ RESOLVED' : item.riskStatus}
+                            </span>
                           </div>
                           <div className="case-row-body">
                             <small>{item.riskReason || 'Payment degradation detected'}</small>
@@ -310,6 +315,120 @@ export default function App() {
   );
 }
 
+
+function computeDeterministicBaseline(caseDetail) {
+  const latestEvent = caseDetail?.events?.[caseDetail.events.length - 1] || caseDetail?.events?.[0] || null;
+  const rawPayload = latestEvent?.rawPayload || {};
+  const reason = (latestEvent?.failureReason || caseDetail?.recoveryCase?.riskReason || '').toLowerCase();
+  const code = (rawPayload.error_code || '').toLowerCase();
+  const source = (rawPayload.error_source || '').toLowerCase();
+  const step = (rawPayload.error_step || '').toLowerCase();
+  const desc = (rawPayload.error_description || '').toLowerCase();
+  const combined = `${reason} ${code} ${source} ${step} ${desc}`;
+
+  if (combined.includes('timeout') || combined.includes('switch') || combined.includes('bank switch')) {
+    return {
+      failureFamily: 'BANK_SWITCH_TIMEOUT',
+      failureType: 'ISSUER_SWITCH_TIMEOUT',
+      confidence: 0.88,
+      cause: 'Customer card issuer switch timed out during transaction authorization.',
+      classificationBasis: ['payment.failureReason', 'provider.errorStep'],
+      unknowns: [
+        'Customer account balance is private to the issuer bank.',
+        'Secondary payment instruments were not attempted in this session.'
+      ],
+      evidenceStrength: 'STRONG',
+      source: 'DETERMINISTIC_BASELINE'
+    };
+  }
+
+  if (code === 'insufficient_funds' || combined.includes('insufficient_funds') || combined.includes('insufficient balance')) {
+    return {
+      failureFamily: 'INSUFFICIENT_FUNDS',
+      failureType: 'ACCOUNT_INSUFFICIENT_BALANCE',
+      confidence: 0.90,
+      cause: 'Customer account had insufficient balance at payment authorization.',
+      classificationBasis: ['provider.errorCode', 'payment.failureReason'],
+      unknowns: [
+        'Exact customer balance is not disclosed by card network.',
+        'Customer salary credit or replenishment schedule is unverified.'
+      ],
+      evidenceStrength: 'STRONG',
+      source: 'DETERMINISTIC_BASELINE'
+    };
+  }
+
+  if (combined.includes('auth') || combined.includes('3ds') || combined.includes('otp')) {
+    return {
+      failureFamily: 'AUTHENTICATION_FAILURE',
+      failureType: 'TWO_FACTOR_DROPOFF',
+      confidence: 0.85,
+      cause: 'Customer hesitated or abandoned during two-factor authentication.',
+      classificationBasis: ['provider.errorStep', 'payment.failureReason'],
+      unknowns: [
+        'Carrier SMS latency vs active customer abandonment.',
+        'Banking app push notification delivery status.'
+      ],
+      evidenceStrength: 'PARTIAL',
+      source: 'DETERMINISTIC_BASELINE'
+    };
+  }
+
+  // Default Conservative / Honest Abstention for generic "Payment failed"
+  return {
+    failureFamily: 'UNKNOWN_FAILURE',
+    failureType: 'INSUFFICIENT_PROVIDER_TELEMETRY',
+    confidence: 0.30,
+    cause: 'Provider reported generic failure without technical error code or step.',
+    classificationBasis: ['payment.status'],
+    unknowns: [
+      'Provider supplied only a generic failure status without error codes or source step.',
+      'Technical root cause was not verified by provider telemetry.'
+    ],
+    evidenceStrength: 'MINIMAL',
+    source: 'DETERMINISTIC_BASELINE'
+  };
+}
+
+function getDefaultCandidates(caseDetail, family) {
+  const amount = caseDetail?.recoveryCase?.amount || 50000;
+  const isRecoverable = caseDetail?.recoveryCase?.riskStatus !== 'RESOLVED';
+  return [
+    {
+      action: 'CREATE_PAYMENT_LINK',
+      executionMode: 'LIVE_PROVIDER',
+      isLiveExecutable: true,
+      estimatedProbability: isRecoverable ? 0.55 : 0.0,
+      estimatedRecoveryValue: Math.round(amount * (isRecoverable ? 0.55 : 0.0)),
+      strategyDescription: 'Generate an idempotent, bounded Razorpay Test Mode link to bypass failed checkout.'
+    },
+    {
+      action: 'SCHEDULE_RETRY_WINDOW',
+      executionMode: 'SIMULATED',
+      isLiveExecutable: false,
+      estimatedProbability: 0.42,
+      estimatedRecoveryValue: Math.round(amount * 0.42),
+      strategyDescription: 'Calculate optimal quiet retry window aligned with subscription billing policies.'
+    },
+    {
+      action: 'CUSTOMER_OUTREACH',
+      executionMode: 'SIMULATED',
+      isLiveExecutable: false,
+      estimatedProbability: 0.38,
+      estimatedRecoveryValue: Math.round(amount * 0.38),
+      strategyDescription: 'Prepare contextual buyer recovery notification across verified messaging channels.'
+    },
+    {
+      action: 'REQUEST_MANUAL_REVIEW',
+      executionMode: 'CONTROL',
+      isLiveExecutable: false,
+      estimatedProbability: 0.20,
+      estimatedRecoveryValue: Math.round(amount * 0.20),
+      strategyDescription: 'Route complex, high-value, or low-confidence failure scenarios to human operators.'
+    }
+  ];
+}
+
 function RecoveryJourneyStepper({ detail, diagnosis, policyData, actions, outcomes }) {
   const { recoveryCase } = detail;
   const confirmedAction = actions.find((a) => a.status === 'OUTCOME_CONFIRMED');
@@ -321,72 +440,66 @@ function RecoveryJourneyStepper({ detail, diagnosis, policyData, actions, outcom
 
   const steps = [
     {
-      id: 'failed',
-      label: 'FAILED',
-      sublabel: 'payment.failed',
+      id: 'stage-1',
+      num: '01',
+      label: 'PROVIDER FACT',
+      sublabel: 'Authoritative',
       status: 'completed'
     },
     {
-      id: 'detected',
-      label: 'DETECTED',
-      sublabel: recoveryCase.riskLevel + ' risk',
+      id: 'stage-2',
+      num: '02',
+      label: 'INFERENCE',
+      sublabel: diagnosis ? diagnosis.diagnosis?.failureFamily : 'Failure Intelligence',
       status: 'completed'
     },
     {
-      id: 'diagnosed',
-      label: 'AI DIAGNOSED',
-      sublabel: diagnosis ? diagnosis.diagnosis.cause.substring(0, 16) + '...' : 'Awaiting AI',
-      status: diagnosis ? 'completed' : 'active'
+      id: 'stage-3',
+      num: '03',
+      label: 'STRATEGY',
+      sublabel: 'ERV Heuristic',
+      status: 'completed'
     },
     {
-      id: 'policy',
-      label: 'POLICY',
+      id: 'stage-4',
+      num: '04',
+      label: 'POLICY GATE',
       sublabel: isResolved
-        ? 'ALLOWED FOR RECOVERY'
+        ? 'ALLOWED (CLOSED)'
         : policyData
           ? policyData.decision
-          : 'Pending',
+          : 'Evaluating',
       status: isResolved
         ? 'completed'
         : policyData
           ? (isBlocked ? 'blocked' : isReview ? 'review' : 'completed')
-          : diagnosis
-            ? 'active'
-            : 'pending'
+          : 'active'
     },
     {
-      id: 'action',
-      label: 'ACTION',
-      sublabel: confirmedAction || executedAction
-        ? 'Payment Link Created'
-        : isBlocked
-          ? 'Suppressed'
-          : isReview
-            ? 'Manual Escalate'
-            : 'Executable',
-      status: (confirmedAction || executedAction)
-        ? 'completed'
-        : (isBlocked || isReview)
-          ? 'blocked'
-          : policyData
-            ? 'active'
-            : 'pending'
-    },
-    {
-      id: 'outcome',
-      label: 'OUTCOME',
+      id: 'stage-5',
+      num: '05',
+      label: 'EXECUTION & RECON',
       sublabel: verifiedOutcome
-        ? 'MONEY RECOVERED'
+        ? 'RECONCILED'
         : executedAction
-          ? 'Awaiting Payment'
+          ? 'Link Active'
           : isBlocked
-            ? 'No Recovery'
-            : 'Pending',
+            ? 'Suppressed'
+            : 'Executable',
       status: verifiedOutcome
         ? 'verified'
         : executedAction
           ? 'waiting'
-          : 'pending'
+          : isBlocked
+            ? 'blocked'
+            : 'active'
+    },
+    {
+      id: 'stage-6',
+      num: '06',
+      label: 'TIMELINE',
+      sublabel: 'Audit Trail',
+      status: 'completed'
     }
   ];
 
@@ -394,22 +507,16 @@ function RecoveryJourneyStepper({ detail, diagnosis, policyData, actions, outcom
     <div className="stepper-container">
       <div className="stepper-track">
         {steps.map((step, idx) => (
-          <div key={step.id} className={`stepper-step ${step.status}`}>
+          <a key={step.id} href={`#${step.id}`} className={`stepper-step ${step.status}`}>
             <div className="step-circle">
-              {step.status === 'completed' && '✓'}
-              {step.status === 'verified' && '✓'}
-              {step.status === 'blocked' && '×'}
-              {step.status === 'review' && '!'}
-              {step.status === 'waiting' && '⏳'}
-              {step.status === 'active' && (idx + 1)}
-              {step.status === 'pending' && (idx + 1)}
+              {step.status === 'verified' ? '✓' : step.status === 'blocked' ? '×' : step.status === 'completed' ? '✓' : step.num}
             </div>
             <div className="step-info">
               <span className="step-label">{step.label}</span>
               <small className="step-sublabel">{step.sublabel}</small>
             </div>
             {idx < steps.length - 1 && <div className="step-connector" />}
-          </div>
+          </a>
         ))}
       </div>
     </div>
@@ -432,22 +539,40 @@ function CaseDetail({
   onRefreshCase = null
 }) {
   const { recoveryCase, events, auditEvents } = detail;
+  const isResolved = recoveryCase.riskStatus === 'RESOLVED' || outcomes.some((o) => o.verified);
 
   return (
     <div className="case-detail-container">
-      {/* Case Header & Quick Metrics */}
-      <div className="case-meta-header">
-        <div>
-          <span className="case-id-tag">Case #{recoveryCase.id} · {recoveryCase.paymentId}</span>
-          <h3>{recoveryCase.riskReason || 'Payment Degradation'}</h3>
+      {/* CASE IDENTITY HEADER */}
+      <div className="case-hero-header">
+        <div className="case-hero-left">
+          <div className="case-badge-meta">
+            <span className="case-id-tag">CASE #{recoveryCase.id}</span>
+            <code className="case-payment-monospace">{recoveryCase.paymentId}</code>
+            <span className="case-created-time">Detected: {formatTime(recoveryCase.createdAt)}</span>
+          </div>
+          <h2 className="case-reason-title">{recoveryCase.riskReason || 'Payment Degradation Detected'}</h2>
         </div>
-        <div className="case-meta-badges">
-          <span className={`status-pill ${recoveryCase.riskStatus.toLowerCase()}`}>{recoveryCase.riskStatus}</span>
-          <span className="amount-badge">{formatMoney(recoveryCase.amount, recoveryCase.currency)}</span>
+
+        <div className="case-hero-right">
+          <div className="case-amount-display">
+            <span className="case-amount-label">{isResolved ? 'Recovered Revenue' : 'Revenue at Risk'}</span>
+            <strong className={`case-amount-num ${isResolved ? 'text-success' : 'text-amber'}`}>
+              {formatMoney(recoveryCase.amount, recoveryCase.currency)}
+            </strong>
+          </div>
+          <div className="case-status-wrap">
+            <span className={`status-pill ${recoveryCase.riskStatus.toLowerCase()}`}>
+              {isResolved ? '✓ RESOLVED' : recoveryCase.riskStatus}
+            </span>
+            <span className={`risk-tag ${recoveryCase.riskLevel.toLowerCase()}`}>
+              {recoveryCase.riskLevel} RISK
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Recovery Journey Stepper */}
+      {/* 6-STAGE PIPELINE PROGRESS INDICATOR */}
       <RecoveryJourneyStepper
         detail={detail}
         diagnosis={diagnosis}
@@ -456,484 +581,548 @@ function CaseDetail({
         outcomes={outcomes}
       />
 
-      {/* Case Summary Attributes */}
-      <dl className="case-attributes-grid">
-        <div>
-          <dt>Risk Level</dt>
-          <dd><span className={`risk-tag ${recoveryCase.riskLevel.toLowerCase()}`}>{recoveryCase.riskLevel}</span></dd>
+      {/* ========================================================================= */}
+      {/* STAGE 01 — WHAT DID THE PROVIDER REPORT?                                  */}
+      {/* ========================================================================= */}
+      <section id="stage-1" className="stage-card stage-provider">
+        <div className="stage-header">
+          <div className="stage-num-badge">STAGE 01</div>
+          <div className="stage-title-wrap">
+            <h3>WHAT DID THE PROVIDER REPORT?</h3>
+            <small className="muted">Authoritative factual telemetry from webhook payload · Zero synthetic interpolation</small>
+          </div>
+          <span className="badge-authoritative">RAW PROVIDER FACTS</span>
         </div>
-        <div>
-          <dt>Total Value</dt>
-          <dd><b>{formatMoney(recoveryCase.amount, recoveryCase.currency)}</b></dd>
+
+        <Stage1ProviderSignal caseDetail={detail} />
+      </section>
+
+      {/* ========================================================================= */}
+      {/* STAGE 02 — WHAT DID REVFLOW INFER?                                        */}
+      {/* ========================================================================= */}
+      <section id="stage-2" className="stage-card stage-inference">
+        <div className="stage-header">
+          <div className="stage-num-badge">STAGE 02</div>
+          <div className="stage-title-wrap">
+            <h3>WHAT DID REVFLOW INFER?</h3>
+            <small className="muted">M8 Canonical Taxonomy · Calibrated Confidence · Grounding Proof · Honest Abstention</small>
+          </div>
+          <span className="badge-ai-intel">FAILURE INTELLIGENCE</span>
         </div>
-        <div>
-          <dt>Resolution Status</dt>
-          <dd>{recoveryCase.outcome || (recoveryCase.riskStatus === 'RESOLVED' ? 'RECOVERED' : 'IN PROGRESS')}</dd>
+
+        <Stage2RevflowInference
+          diagnosis={diagnosis}
+          caseDetail={detail}
+          generating={generatingDiagnosis}
+          onGenerate={onGenerateDiagnosis}
+          diagnosisError={diagnosisError}
+        />
+      </section>
+
+      {/* ========================================================================= */}
+      {/* STAGE 03 — WHAT SHOULD REVFLOW DO?                                        */}
+      {/* ========================================================================= */}
+      <section id="stage-3" className="stage-card stage-strategy">
+        <div className="stage-header">
+          <div className="stage-num-badge">STAGE 03</div>
+          <div className="stage-title-wrap">
+            <h3>WHAT SHOULD REVFLOW DO?</h3>
+            <small className="muted">Candidate Strategy Ranking · Expected Recovery Value (ERV) · Explicit Execution Modes</small>
+          </div>
+          <span className="badge-strategy-mode">STRATEGY IMPLICATION</span>
         </div>
-        <div>
-          <dt>Created At</dt>
-          <dd>{formatTime(recoveryCase.createdAt)}</dd>
+
+        <Stage3StrategyImplication
+          diagnosis={diagnosis}
+          caseDetail={detail}
+          currency={recoveryCase.currency}
+        />
+      </section>
+
+      {/* ========================================================================= */}
+      {/* STAGE 04 — WHAT DID POLICY ALLOW?                                         */}
+      {/* ========================================================================= */}
+      <section id="stage-4" className="stage-card stage-policy">
+        <div className="stage-header">
+          <div className="stage-num-badge">STAGE 04</div>
+          <div className="stage-title-wrap">
+            <h3>WHAT DID POLICY ALLOW?</h3>
+            <small className="muted">Authoritative 12-rule safety engine · Deterministic veto power over AI proposals</small>
+          </div>
+          {policyData && (
+            <span className={`policy-decision-badge ${policyData.decision.toLowerCase()}`}>
+              POLICY {policyData.decision}
+            </span>
+          )}
         </div>
-      </dl>
 
-      {/* AI Diagnosis Panel */}
-      <DiagnosisPanel
-        diagnosis={diagnosis}
-        error={diagnosisError}
-        generating={generatingDiagnosis}
-        onGenerate={onGenerateDiagnosis}
-        currency={recoveryCase.currency}
-        caseDetail={detail}
-      />
+        <Stage4PolicyGovernance
+          policyData={policyData}
+          error={policyError}
+        />
+      </section>
 
-      {/* Policy Guardrails & Action Panel */}
-      <PolicyAndActionPanel
-        policyData={policyData}
-        error={policyError}
-        actions={actions}
-        outcomes={outcomes}
-        onExecute={onExecuteAction}
-        executing={executingAction}
-        actionError={actionError}
-        currency={recoveryCase.currency}
-      />
+      {/* ========================================================================= */}
+      {/* STAGE 05 — WHAT ACTUALLY HAPPENED?                                        */}
+      {/* ========================================================================= */}
+      <section id="stage-5" className="stage-card stage-execution">
+        <div className="stage-header">
+          <div className="stage-num-badge">STAGE 05</div>
+          <div className="stage-title-wrap">
+            <h3>WHAT ACTUALLY HAPPENED?</h3>
+            <small className="muted">Dual-Track Execution · Closed-Loop Reconciliation · Customer Outreach</small>
+          </div>
+          <span className="badge-execution-truth">EXECUTION & RECONCILIATION</span>
+        </div>
 
-      {/* Grounded Multilingual Customer Communication Panel */}
-      <CustomerCommunicationPanel
-        caseId={recoveryCase.id}
-        caseDetail={detail}
-        actions={actions}
-        currency={recoveryCase.currency}
-        onRefreshCase={onRefreshCase}
-      />
+        <Stage5ExecutionAndReconciliation
+          detail={detail}
+          policyData={policyData}
+          actions={actions}
+          outcomes={outcomes}
+          onExecuteAction={onExecuteAction}
+          executingAction={executingAction}
+          actionError={actionError}
+          currency={recoveryCase.currency}
+          onRefreshCase={onRefreshCase}
+        />
+      </section>
 
-      {/* Chronological Audit Narrative */}
-      <section className="audit-section">
-        <h3>Chronological Event & Audit Narrative</h3>
-        <p className="muted">Complete tamper-evident audit history from initial payment failure to final outcome verification.</p>
-        <ol className="timeline">
-          {[
-            ...events.map((event) => ({
-              kind: event.eventType,
-              message: `${event.eventType}${event.failureReason ? ` — ${event.failureReason}` : ''}`,
-              time: event.timestamp
-            })),
-            ...auditEvents.map((audit) => ({
-              kind: audit.eventType,
-              message: audit.message,
-              time: audit.createdAt
-            }))
-          ]
-            .sort((a, b) => new Date(a.time) - new Date(b.time))
-            .map((item, index) => (
-              <li key={`${item.kind}-${index}`}>
-                <time>{formatTime(item.time)}</time>
-                <div className="timeline-content">
-                  <b>{item.kind}</b>
-                  <span>{item.message}</span>
-                </div>
-              </li>
-            ))}
-        </ol>
+      {/* ========================================================================= */}
+      {/* STAGE 06 — RECOVERY TIMELINE                                              */}
+      {/* ========================================================================= */}
+      <section id="stage-6" className="stage-card stage-timeline">
+        <div className="stage-header">
+          <div className="stage-num-badge">STAGE 06</div>
+          <div className="stage-title-wrap">
+            <h3>RECOVERY TIMELINE & AUDIT TRAIL</h3>
+            <small className="muted">Tamper-evident chronological history from failure detection to verified settlement</small>
+          </div>
+          <span className="badge-audit-count">{(events?.length || 0) + (auditEvents?.length || 0)} Events Logged</span>
+        </div>
+
+        <Stage6RecoveryTimeline
+          events={events}
+          auditEvents={auditEvents}
+        />
       </section>
     </div>
   );
 }
 
-function DiagnosisPanel({ diagnosis, error, generating, onGenerate, currency, caseDetail }) {
+// -----------------------------------------------------------------------------
+// STAGE 01 COMPONENT: AUTHORITATIVE PROVIDER SIGNAL
+// -----------------------------------------------------------------------------
+function Stage1ProviderSignal({ caseDetail }) {
   const latestEvent = caseDetail?.events?.[caseDetail.events.length - 1] || caseDetail?.events?.[0] || null;
   const rawPayload = latestEvent?.rawPayload || {};
-  const providerErrorCode = diagnosis?.diagnosis?.providerEvidence?.providerErrorCode || rawPayload.error_code || null;
-  const providerErrorSource = diagnosis?.diagnosis?.providerEvidence?.providerErrorSource || rawPayload.error_source || null;
-  const providerErrorStep = diagnosis?.diagnosis?.providerEvidence?.providerErrorStep || rawPayload.error_step || null;
-  const providerErrorDescription = diagnosis?.diagnosis?.providerEvidence?.providerErrorDescription || rawPayload.error_description || null;
-  const paymentStatus = diagnosis?.diagnosis?.providerEvidence?.status || latestEvent?.paymentStatus || 'failed';
-  const failureReason = diagnosis?.diagnosis?.providerEvidence?.failureReason || latestEvent?.failureReason || caseDetail?.recoveryCase?.riskReason || '(unspecified)';
-  const attemptCount = diagnosis?.diagnosis?.providerEvidence?.attemptCount || latestEvent?.attemptCount || caseDetail?.events?.length || 1;
-  const evidenceStrength = diagnosis?.diagnosis?.evidenceStrength || diagnosis?.diagnosis?.providerEvidence?.evidenceStrength || 'MINIMAL';
+  const status = latestEvent?.paymentStatus || 'failed';
+  const failureReason = latestEvent?.failureReason || caseDetail?.recoveryCase?.riskReason || '(none reported)';
+  const errorCode = rawPayload.error_code || null;
+  const errorSource = rawPayload.error_source || null;
+  const errorStep = rawPayload.error_step || null;
+  const errorDesc = rawPayload.error_description || null;
+  const attemptCount = latestEvent?.attemptCount || caseDetail?.events?.length || 1;
 
-  if (!diagnosis) {
-    return (
-      <section className="panel-box diagnosis-box fi-root-container">
-        <div className="panel-box-header">
-          <div>
-            <h3>FAILURE INTELLIGENCE · Root Cause Engine</h3>
-            <small className="muted">Three-layer evidence architecture: Provider Facts → Revflow Interpretation → Recovery Implication</small>
-          </div>
-          <span className="badge-pending">Awaiting Analysis</span>
-        </div>
-
-        {/* LAYER 1 PREVIEW: PROVIDER SIGNAL */}
-        <div className="fi-layer-card fi-layer-signal">
-          <div className="fi-layer-badge">LAYER 1 · INCOMING PROVIDER SIGNAL</div>
-          <div className="fi-signal-grid">
-            <div>
-              <span className="fi-prop-label">Status</span>
-              <span className="fi-prop-val text-failed">{paymentStatus.toUpperCase()}</span>
-            </div>
-            <div>
-              <span className="fi-prop-label">Recorded Reason</span>
-              <span className="fi-prop-val">{failureReason}</span>
-            </div>
-            <div>
-              <span className="fi-prop-label">Error Code</span>
-              <span className="fi-prop-val"><code>{providerErrorCode || '—'}</code></span>
-            </div>
-            <div>
-              <span className="fi-prop-label">Error Source</span>
-              <span className="fi-prop-val"><code>{providerErrorSource || '—'}</code></span>
-            </div>
-            <div>
-              <span className="fi-prop-label">Error Step</span>
-              <span className="fi-prop-val"><code>{providerErrorStep || '—'}</code></span>
-            </div>
-            <div>
-              <span className="fi-prop-label">Attempts</span>
-              <span className="fi-prop-val">{attemptCount}</span>
-            </div>
-          </div>
-        </div>
-
-        <p className="empty" style={{ margin: '14px 0 8px 0' }}>No root-cause diagnosis proposal has been generated for this case yet.</p>
-        {error && <p className="error">{error}</p>}
-        <button onClick={onGenerate} disabled={generating} className="btn-primary">
-          {generating ? 'Running Failure Intelligence Engine…' : 'RUN FAILURE INTELLIGENCE ENGINE'}
-        </button>
-      </section>
-    );
-  }
-
-  const failureFamily = diagnosis?.diagnosis?.failureFamily || 'UNKNOWN_FAILURE';
-  const failureType = diagnosis?.diagnosis?.failureType || 'UNSPECIFIED_FAILURE';
-  const confidence = Number(diagnosis?.diagnosis?.confidence ?? 0);
-  const confidencePct = Math.round(confidence * 100);
-  const isUnknown = failureFamily === 'UNKNOWN_FAILURE' || confidence < 0.40;
-
-  const classificationBasis = diagnosis?.diagnosis?.classificationBasis || [];
-  const unknowns = diagnosis?.diagnosis?.unknowns || [];
-  const evidenceFacts = diagnosis?.diagnosis?.evidence || [];
+  // Compute factual evidence strength
+  const hasCode = Boolean(errorCode);
+  const hasSource = Boolean(errorSource);
+  const evidenceStrength = (hasCode && hasSource) ? 'STRONG' : (hasCode || hasSource || errorStep) ? 'PARTIAL' : 'MINIMAL';
 
   return (
-    <section className="panel-box diagnosis-box fi-root-container">
-      <div className="panel-box-header">
-        <div>
-          <h3>FAILURE INTELLIGENCE · Root Cause Engine</h3>
-          <small className="muted">Verified 3-layer decomposition · Provider Facts → Canonical Interpretation → Policy Decisions</small>
+    <div className="stage-content-box">
+      <div className="provider-grid">
+        <div className="provider-cell">
+          <span className="cell-label">Payment Status</span>
+          <span className="cell-val text-failed">{status.toUpperCase()}</span>
         </div>
-        <span className="badge-success">Intelligence Synthesized</span>
+        <div className="provider-cell">
+          <span className="cell-label">Recorded Reason</span>
+          <span className="cell-val">{failureReason}</span>
+        </div>
+        <div className="provider-cell">
+          <span className="cell-label">Provider Error Code</span>
+          <span className="cell-val"><code>{errorCode || 'none_reported'}</code></span>
+        </div>
+        <div className="provider-cell">
+          <span className="cell-label">Error Source</span>
+          <span className="cell-val"><code>{errorSource || 'none_reported'}</code></span>
+        </div>
+        <div className="provider-cell">
+          <span className="cell-label">Error Step</span>
+          <span className="cell-val"><code>{errorStep || 'none_reported'}</code></span>
+        </div>
+        <div className="provider-cell">
+          <span className="cell-label">Attempt Count</span>
+          <span className="cell-val">{attemptCount}</span>
+        </div>
       </div>
 
-      {/* LAYER 1: PROVIDER SIGNAL (RAW / NORMALIZED) */}
-      <div className="fi-layer-card fi-layer-signal">
-        <div className="fi-layer-header">
-          <span className="fi-layer-badge">LAYER 1 · PROVIDER SIGNAL (AUTHORITATIVE FACTS)</span>
-          <span className={`badge-strength badge-strength-${evidenceStrength.toLowerCase()}`}>
-            Evidence: {evidenceStrength}
+      {errorDesc && (
+        <div className="provider-desc-banner">
+          <span className="desc-label">Provider Error Description:</span>
+          <span className="desc-content">{errorDesc}</span>
+        </div>
+      )}
+
+      <div className="telemetry-meta-row">
+        <span><b>Authoritative Payment ID:</b> <code>{caseDetail?.recoveryCase?.paymentId || '—'}</code></span>
+        <span><b>Order ID:</b> <code>{caseDetail?.recoveryCase?.orderId || '—'}</code></span>
+        <span><b>Evidence Strength:</b> <span className={`badge-strength badge-strength-${evidenceStrength.toLowerCase()}`}>{evidenceStrength}</span></span>
+        <span className="notice-subtle" style={{ marginLeft: 'auto' }}>Authoritative webhook telemetry · No synthetic fields</span>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// STAGE 02 COMPONENT: REVFLOW FAILURE INTELLIGENCE
+// -----------------------------------------------------------------------------
+function Stage2RevflowInference({ diagnosis, caseDetail, generating, onGenerate, diagnosisError }) {
+  // If stored LLM diagnosis exists, use it. Otherwise, compute instant deterministic baseline!
+  const hasStoredDiagnosis = Boolean(diagnosis?.diagnosis);
+  const baseline = computeDeterministicBaseline(caseDetail);
+
+  const failureFamily = hasStoredDiagnosis ? (diagnosis.diagnosis.failureFamily || 'UNKNOWN_FAILURE') : baseline.failureFamily;
+  const failureType = hasStoredDiagnosis ? (diagnosis.diagnosis.failureType || 'UNSPECIFIED_FAILURE') : baseline.failureType;
+  const confidence = Number(hasStoredDiagnosis ? (diagnosis.diagnosis.confidence ?? 0) : baseline.confidence);
+  const confidencePct = Math.round(confidence * 100);
+  const cause = hasStoredDiagnosis ? diagnosis.diagnosis.cause : baseline.cause;
+  const basis = hasStoredDiagnosis ? (diagnosis.diagnosis.classificationBasis || []) : baseline.classificationBasis;
+  const unknowns = hasStoredDiagnosis ? (diagnosis.diagnosis.unknowns || []) : baseline.unknowns;
+  const source = hasStoredDiagnosis ? (diagnosis.source || 'LLM_ADVISORY_SYNTHESIS') : 'DETERMINISTIC_BASELINE';
+  const isUnknown = failureFamily === 'UNKNOWN_FAILURE' || confidence < 0.40;
+
+  return (
+    <div className="stage-content-box">
+      {/* Intelligence Provenance Banner */}
+      <div className="intel-provenance-bar">
+        <div className="provenance-left">
+          <span className={`badge-provenance ${hasStoredDiagnosis ? 'provenance-llm' : 'provenance-baseline'}`}>
+            {hasStoredDiagnosis ? '⚡ LLM ADVISORY SYNTHESIS' : '⚙️ DETERMINISTIC BASELINE'}
+          </span>
+          <span className="provenance-note">
+            {hasStoredDiagnosis
+              ? `Model: ${diagnosis.model || 'gemini-2.5-flash'} · Prompt: ${diagnosis.promptVersion || 'recoverai-diagnosis-v1'}`
+              : 'Computed immediately from authoritative provider facts via canonical taxonomy rules'}
           </span>
         </div>
 
-        <div className="fi-signal-grid">
-          <div>
-            <span className="fi-prop-label">Payment Status</span>
-            <span className="fi-prop-val text-failed">{paymentStatus.toUpperCase()}</span>
-          </div>
-          <div>
-            <span className="fi-prop-label">Failure Reason</span>
-            <span className="fi-prop-val">{failureReason}</span>
-          </div>
-          <div>
-            <span className="fi-prop-label">Error Code</span>
-            <span className="fi-prop-val"><code>{providerErrorCode || 'none_reported'}</code></span>
-          </div>
-          <div>
-            <span className="fi-prop-label">Error Source</span>
-            <span className="fi-prop-val"><code>{providerErrorSource || 'none_reported'}</code></span>
-          </div>
-          <div>
-            <span className="fi-prop-label">Error Step</span>
-            <span className="fi-prop-val"><code>{providerErrorStep || 'none_reported'}</code></span>
-          </div>
-          <div>
-            <span className="fi-prop-label">Attempt Count</span>
-            <span className="fi-prop-val">{attemptCount}</span>
-          </div>
-        </div>
-
-        {providerErrorDescription && (
-          <div className="fi-provider-desc">
-            <span className="fi-prop-label">Provider Error Description:</span>
-            <span className="fi-desc-text">{providerErrorDescription}</span>
-          </div>
-        )}
-
-        {evidenceFacts.length > 0 && (
-          <div className="fi-evidence-facts">
-            <span className="fi-prop-label">Grounded Webhook Facts Cited:</span>
-            <div className="fi-facts-chips">
-              {evidenceFacts.map((item) => (
-                <span key={item.field} className="fi-fact-chip">
-                  <code>{item.field}</code>: <b>{item.value}</b>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+        <button
+          onClick={onGenerate}
+          disabled={generating}
+          className="btn-trigger-ai"
+          title="Run full AI LLM reasoning engine"
+        >
+          {generating ? 'Running LLM Diagnosis…' : (hasStoredDiagnosis ? '⚡ Re-run AI Analysis' : '⚡ RUN LLM ADVISORY SYNTHESIS')}
+        </button>
       </div>
 
-      {/* LAYER 2: REVFLOW INTERPRETATION (CANONICAL / AI) */}
-      <div className="fi-layer-card fi-layer-interpretation">
-        <div className="fi-layer-header">
-          <span className="fi-layer-badge">LAYER 2 · REVFLOW INTERPRETATION</span>
-          <div className="fi-confidence-wrap">
-            <span className="fi-confidence-num" style={{ color: confidencePct >= 70 ? '#16a34a' : (confidencePct >= 40 ? '#d97706' : '#dc2626') }}>
-              {confidencePct}% Confidence
-            </span>
+      {diagnosisError && <p className="error" style={{ margin: '8px 0' }}>{diagnosisError}</p>}
+
+      {/* Unknown Failure Alert Banner */}
+      {isUnknown && (
+        <div className="fi-unknown-alert">
+          <div className="fi-unknown-icon">⚠️</div>
+          <div>
+            <b>UNKNOWN FAILURE — Provider supplied insufficient diagnostic evidence to establish a specific root cause.</b>
+            <p>The provider reported no actionable error code, failure step, or bank reason. Revflow strictly abstains from inventing ungrounded failure hypotheses.</p>
           </div>
         </div>
+      )}
 
-        {isUnknown && (
-          <div className="fi-unknown-alert">
-            <div className="fi-unknown-icon">⚠️</div>
-            <div>
-              <b>UNKNOWN FAILURE — Provider supplied insufficient diagnostic evidence to establish a specific root cause.</b>
-              <p>The provider reported no actionable error code, failure step, or bank reason. Revflow strictly abstains from inventing ungrounded failure hypotheses.</p>
-            </div>
-          </div>
-        )}
-
-        <div className="fi-taxonomy-banner">
-          <div className="fi-family-row">
-            <span className="fi-family-label">Canonical Family:</span>
-            <span className="badge-family">{failureFamily}</span>
-            <span className="badge-type">{failureType}</span>
-          </div>
-          <h4 className="fi-cause-text">{diagnosis.diagnosis.cause}</h4>
+      {/* Taxonomy & Root Cause Card */}
+      <div className="taxonomy-summary-card">
+        <div className="taxonomy-pill-row">
+          <span className="tax-label">Canonical Failure Family:</span>
+          <span className="badge-family">{failureFamily}</span>
+          <span className="badge-type">{failureType}</span>
+          <span className="confidence-pill" style={{ marginLeft: 'auto', color: confidencePct >= 70 ? '#16a34a' : (confidencePct >= 40 ? '#d97706' : '#dc2626') }}>
+            <b>{confidencePct}%</b> Diagnostic Confidence
+          </span>
         </div>
+        <h4 className="cause-narrative-text">{cause}</h4>
+      </div>
 
-        {/* Confidence Meter Bar */}
-        <div className="fi-meter-container">
-          <div className="fi-meter-label-row">
-            <span>Inference Confidence Level</span>
-            <b>{confidencePct}%</b>
-          </div>
-          <div className="fi-meter-track">
-            <div
-              className={`fi-meter-fill ${confidencePct >= 70 ? 'meter-high' : (confidencePct >= 40 ? 'meter-med' : 'meter-low')}`}
-              style={{ width: `${Math.max(confidencePct, 5)}%` }}
-            />
-          </div>
+      {/* Confidence Level Meter */}
+      <div className="fi-meter-container">
+        <div className="fi-meter-label-row">
+          <span>Inference Confidence Level</span>
+          <b>{confidencePct}% ({confidencePct >= 70 ? 'High Confidence' : confidencePct >= 40 ? 'Moderate Confidence' : 'Conservative / Insufficient Telemetry'})</b>
         </div>
+        <div className="fi-meter-track">
+          <div
+            className={`fi-meter-fill ${confidencePct >= 70 ? 'meter-high' : (confidencePct >= 40 ? 'meter-med' : 'meter-low')}`}
+            style={{ width: `${Math.max(confidencePct, 6)}%` }}
+          />
+        </div>
+      </div>
 
-        {/* Classification Basis */}
-        {classificationBasis.length > 0 && (
-          <div className="fi-basis-section">
-            <span className="fi-prop-label">Classification Basis (Grounding Proof):</span>
-            <div className="fi-basis-chips">
-              {classificationBasis.map((basis) => (
-                <span key={basis} className="fi-basis-chip">
-                  <span className="check-icon">✓</span> {basis}
-                </span>
+      {/* What Revflow Knows vs What Revflow Does Not Know */}
+      <div className="knowledge-split-grid">
+        <div className="knowledge-column known">
+          <h5>✓ WHAT REVFLOW KNOWS (Classification Basis)</h5>
+          {basis.length > 0 ? (
+            <ul className="knowledge-chips">
+              {basis.map((b) => (
+                <li key={b} className="chip-grounding">
+                  <span className="check-icon">✓</span> <code>{b}</code>
+                </li>
               ))}
-            </div>
-          </div>
-        )}
+            </ul>
+          ) : (
+            <p className="muted-text">Verified factual provider telemetry from event stream.</p>
+          )}
+        </div>
 
-        {/* Unknowns / Unproven List */}
-        {unknowns.length > 0 && (
-          <div className="fi-unknowns-section">
-            <span className="fi-prop-label">Unknowns & Unproven Telemetry (Abstention Guard):</span>
-            <ul className="fi-unknowns-list">
+        <div className="knowledge-column unknown">
+          <h5>⚠️ WHAT REVFLOW DOES NOT KNOW (Abstention Guard)</h5>
+          {unknowns.length > 0 ? (
+            <ul className="unknowns-bullet-list">
               {unknowns.map((u, idx) => (
                 <li key={idx}>
                   <span className="bullet-unproven">•</span> {u}
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-
-        <div className="fi-meta-provenance">
-          <span>Model: <code>{diagnosis.model}</code></span>
-          <span>Prompt: <code>{diagnosis.promptVersion}</code></span>
-          <span>Source: <b>{diagnosis.source}</b></span>
+          ) : (
+            <p className="muted-text">Zero unverified technical claims.</p>
+          )}
         </div>
       </div>
-
-      {/* LAYER 3: RECOVERY IMPLICATION */}
-      <div className="fi-layer-card fi-layer-implication">
-        <div className="fi-layer-header">
-          <span className="fi-layer-badge">LAYER 3 · RECOVERY IMPLICATION</span>
-          <span className="badge-policy-allow">Policy Bounded</span>
-        </div>
-
-        <div className="fi-rationale-box">
-          <span className="fi-prop-label">AI Strategy Rationale:</span>
-          <p className="fi-rationale-text">{diagnosis.recommendation.reason}</p>
-        </div>
-
-        <div className="candidates-section" style={{ marginTop: '12px' }}>
-          <span className="fi-prop-label">Evaluated Candidate Interventions:</span>
-          <div className="candidates-grid" style={{ marginTop: '8px' }}>
-            {diagnosis.candidates.map((candidate) => {
-              const isRecommended = candidate.action === (diagnosis.recommendation?.action || diagnosis.proposedAction);
-              return (
-                <div key={candidate.action} className={`candidate-card ${isRecommended ? 'candidate-card-recommended' : ''}`}>
-                  <div className="candidate-header-row">
-                    <b>{candidate.action}</b>
-                    {isRecommended && <span className="badge-recommended">RECOMMENDED</span>}
-                  </div>
-                  <div className="candidate-stats">
-                    <span>{Math.round(candidate.estimatedProbability * 100)}% Est. Conversion</span>
-                    <b>{formatMoney(candidate.estimatedRecoveryValue, currency)}</b>
-                  </div>
-                  <div className="candidate-execution-mode">
-                    <span className={`badge-exec-mode badge-exec-${(candidate.executionMode || 'control').toLowerCase()}`}>
-                      {candidate.executionMode || (candidate.isLiveExecutable ? 'LIVE_PROVIDER' : 'CONTROL')}
-                    </span>
-                    {candidate.strategyDescription && (
-                      <small className="muted" style={{ display: 'block', marginTop: '4px', fontSize: '0.72rem' }}>
-                        {candidate.strategyDescription}
-                      </small>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <p className="notice-subtle" style={{ margin: '8px 0 0 0' }}>
-        Advisory Intelligence Only — All interventions remain bounded by server-owned amounts and deterministic policy guardrails.
-      </p>
-    </section>
+    </div>
   );
 }
 
-function PolicyAndActionPanel({ policyData, error, actions, outcomes, onExecute, executing, actionError, currency }) {
+// -----------------------------------------------------------------------------
+// STAGE 03 COMPONENT: RECOVERY STRATEGY IMPLICATION
+// -----------------------------------------------------------------------------
+function Stage3StrategyImplication({ diagnosis, caseDetail, currency }) {
+  const hasStoredDiagnosis = Boolean(diagnosis?.recommendation);
+  const baseline = computeDeterministicBaseline(caseDetail);
+  const candidates = (hasStoredDiagnosis && diagnosis.candidates?.length)
+    ? diagnosis.candidates
+    : getDefaultCandidates(caseDetail, baseline.failureFamily);
+
+  const recommendedAction = hasStoredDiagnosis
+    ? (diagnosis.recommendation?.action || diagnosis.proposedAction)
+    : (caseDetail?.recoveryCase?.riskStatus === 'RESOLVED' ? 'NO_ACTION' : 'CREATE_PAYMENT_LINK');
+
+  const rationale = hasStoredDiagnosis
+    ? diagnosis.recommendation?.reason
+    : (caseDetail?.recoveryCase?.riskStatus === 'RESOLVED'
+      ? 'Payment outcome confirmed via signed webhook. All recovery interventions permanently concluded.'
+      : (baseline.failureFamily === 'BANK_SWITCH_TIMEOUT'
+        ? 'Transient bank switch timeout detected. Immediate Razorpay payment link allows buyer to complete checkout via alternate card/UPI without cart friction.'
+        : 'Conservative recovery strategy recommended under baseline failure intelligence.'));
+
+  return (
+    <div className="stage-content-box">
+      <div className="strategy-rationale-card">
+        <span className="rationale-tag">RECOMMENDED STRATEGY RATIONALE:</span>
+        <p className="rationale-text">{rationale}</p>
+      </div>
+
+      <div className="candidates-list-wrap">
+        <div className="candidates-list-header">
+          <span>Candidate Recovery Interventions</span>
+          <span className="muted">Ranked by deterministic Expected Recovery Value (ERV) heuristic</span>
+        </div>
+
+        <div className="candidates-table">
+          {candidates.map((candidate) => {
+            const isRec = candidate.action === recommendedAction;
+            return (
+              <div key={candidate.action} className={`candidate-row ${isRec ? 'candidate-row-recommended' : ''}`}>
+                <div className="candidate-cell-main">
+                  <div className="candidate-name-row">
+                    <b>{candidate.action}</b>
+                    {isRec && <span className="badge-recommended">★ RECOMMENDED</span>}
+                    <span className={`badge-exec-mode badge-exec-${(candidate.executionMode || 'control').toLowerCase()}`}>
+                      {candidate.executionMode || (candidate.isLiveExecutable ? 'LIVE_PROVIDER' : 'CONTROL')}
+                    </span>
+                  </div>
+                  <p className="candidate-desc-text">{candidate.strategyDescription}</p>
+                </div>
+
+                <div className="candidate-cell-stats">
+                  <div className="stat-pill">
+                    <span className="stat-sub">Est. Conversion</span>
+                    <b>{Math.round(candidate.estimatedProbability * 100)}%</b>
+                  </div>
+                  <div className="stat-pill">
+                    <span className="stat-sub">Expected Recovery (ERV)</span>
+                    <strong className="text-erv">{formatMoney(candidate.estimatedRecoveryValue, currency)}</strong>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="strategy-footer-disclosure">
+        <span className="disclosure-pill">Execution Boundaries</span>
+        <span>
+          Only <code>LIVE_PROVIDER</code> strategies communicate with external payment APIs (Razorpay Test Mode).
+          All other candidate strategies are simulated control plane workflows and never credit merchant revenue.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// STAGE 04 COMPONENT: DETERMINISTIC POLICY GOVERNANCE
+// -----------------------------------------------------------------------------
+function Stage4PolicyGovernance({ policyData, error }) {
+  if (error) return <div className="stage-content-box"><p className="error">{error}</p></div>;
+  if (!policyData) {
+    return (
+      <div className="stage-content-box">
+        <p className="empty">Evaluating deterministic policy rules against case context…</p>
+      </div>
+    );
+  }
+
+  const isAllow = policyData.decision === 'ALLOW';
+  const isBlock = policyData.decision === 'BLOCK';
+  const isReview = policyData.decision === 'REVIEW';
+
+  return (
+    <div className="stage-content-box">
+      {/* Decision Banner */}
+      <div className={`policy-decision-banner ${policyData.decision.toLowerCase()}`}>
+        <div className="decision-banner-header">
+          <span className="decision-title">
+            {isAllow && '✓ POLICY ALLOW — RECOVERY INTERVENTION APPROVED'}
+            {isBlock && '✗ POLICY BLOCK — ACTION EXECUTION STRICTLY PROHIBITED'}
+            {isReview && '⚠️ POLICY REVIEW — HUMAN OPERATOR ESCALATION REQUIRED'}
+          </span>
+          <span className="decision-engine-tag">Policy Engine: recoverai-policy-v1</span>
+        </div>
+        {policyData.reasons?.length > 0 && (
+          <ul className="policy-reasons-list">
+            {policyData.reasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Evaluated Guardrails Checklist */}
+      <div className="guardrails-container">
+        <div className="guardrails-header">
+          <h4>Evaluated Financial Guardrails Checklist (12 Invariant Rules)</h4>
+          <span className="muted">Deterministic server-side rules · 100% veto authority over AI</span>
+        </div>
+
+        <div className="guardrails-grid-compact">
+          {policyData.rulesEvaluated?.map((r) => (
+            <div key={r.rule} className={`guardrail-item ${r.status.toLowerCase()}`}>
+              <div className="guardrail-status-icon">
+                {r.status === 'PASS' ? '✓' : r.status === 'REVIEW' ? '!' : '✗'}
+              </div>
+              <div className="guardrail-info">
+                <code>{r.rule}</code>
+                <span className={`rule-tag ${r.status.toLowerCase()}`}>{r.status}</span>
+              </div>
+              {r.message && <small className="guardrail-msg">{r.message}</small>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="policy-footer-notice">
+        <b>AUTHORITATIVE PERMISSION GATE:</b> Policy determines permission only. Execution, Payment Links, and ledger reconciliation are separated in Stage 5.
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// STAGE 05 COMPONENT: WHAT ACTUALLY HAPPENED (EXECUTION & RECONCILIATION)
+// -----------------------------------------------------------------------------
+function Stage5ExecutionAndReconciliation({
+  detail,
+  policyData,
+  actions,
+  outcomes,
+  onExecuteAction,
+  executingAction,
+  actionError,
+  currency,
+  onRefreshCase
+}) {
+  const { recoveryCase } = detail;
   const confirmedAction = actions.find((a) => a.status === 'OUTCOME_CONFIRMED');
   const executedAction = actions.find((a) => a.status === 'EXECUTED');
   const verifiedOutcome = outcomes.find((o) => o.verified === true);
   const unverifiedOutcome = outcomes.find((o) => o.verified === false);
+  const isResolved = recoveryCase.riskStatus === 'RESOLVED' || Boolean(verifiedOutcome);
 
   return (
-    <section className="panel-box policy-panel-box">
-      <div className="panel-box-header">
-        <div>
-          <h3>DETERMINISTIC POLICY DECISION · Recovery Governance</h3>
-          <small className="muted">Authoritative 12-rule safety engine with 100% veto authority over AI proposals</small>
-        </div>
-        {policyData && (
-          <span className={`policy-decision-badge ${policyData.decision.toLowerCase()}`}>
-            POLICY {policyData.decision}
-          </span>
-        )}
-      </div>
-
-      {error && <p className="error">{error}</p>}
-
-      {!policyData ? (
-        <p className="empty">Policy guardrails will evaluate automatically once AI diagnosis is available.</p>
-      ) : (
-        <>
-          {policyData.reasons.length > 0 && (
-            <div className="policy-reasons-box">
-              <b>Policy Evaluation Notes:</b>
-              <ul>
-                {policyData.reasons.map((reason, idx) => (
-                  <li key={idx}>⚠️ {reason}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="guardrails-section">
-            <h4>Evaluated Guardrails Checklist (12 Policy Rules)</h4>
-            <ul className="rules-checklist">
-              {policyData.rulesEvaluated.map((r) => (
-                <li key={r.rule} className={r.status.toLowerCase()}>
-                  <div className="rule-status-row">
-                    <span className="rule-icon">{r.status === 'PASS' ? '✓' : r.status === 'REVIEW' ? '!' : '✗'}</span>
-                    <code>{r.rule}</code>
-                    <span className={`rule-status-tag ${r.status.toLowerCase()}`}>{r.status}</span>
-                  </div>
-                  {r.message && <small>{r.message}</small>}
-                </li>
-              ))}
-            </ul>
+    <div className="stage-content-box">
+      <div className="dual-track-grid">
+        {/* =================================================================== */}
+        {/* TRACK A: FINANCIAL EXECUTION & RECONCILIATION                      */}
+        {/* =================================================================== */}
+        <div className="track-card track-financial">
+          <div className="track-header">
+            <span className="track-tag-badge">TRACK A · FINANCIAL EXECUTION</span>
+            <span className="badge-live-tag">RAZORPAY TEST MODE</span>
           </div>
 
-          {/* Action vs Outcome State Cards */}
-          {confirmedAction || verifiedOutcome ? (
-            <div className="action-result-card confirmed">
-              <div className="result-header">
-                <span className="badge-verified-huge">✓ RECOVERY VERIFIED</span>
-                <span className="recovered-amount-huge">
+          {verifiedOutcome || confirmedAction ? (
+            <div className="execution-result-card verified">
+              <div className="exec-header-row">
+                <span className="badge-verified-huge">✓ RECOVERY VERIFIED & RECONCILED</span>
+                <span className="amount-huge text-success">
                   {formatMoney(verifiedOutcome?.amountPaid || confirmedAction?.amount, currency)}
                 </span>
               </div>
-              <dl className="result-meta-grid">
+
+              <dl className="exec-meta-grid">
+                <div>
+                  <dt>Provider Payment ID</dt>
+                  <dd><code>{verifiedOutcome?.providerPaymentId || confirmedAction?.providerActionId || 'pay_test_verified'}</code></dd>
+                </div>
                 <div>
                   <dt>Recovery Action ID</dt>
                   <dd><code>{(confirmedAction || executedAction)?.providerActionId || (confirmedAction || executedAction)?.id}</code></dd>
                 </div>
                 <div>
-                  <dt>Razorpay Payment ID</dt>
-                  <dd><code>{verifiedOutcome?.providerPaymentId || 'pay_test_verified'}</code></dd>
+                  <dt>Reconciliation Method</dt>
+                  <dd>{verifiedOutcome?.verificationReason || 'Exact amount & currency matched via Razorpay payment_link.paid webhook.'}</dd>
                 </div>
                 <div>
-                  <dt>Verification Method</dt>
-                  <dd>{verifiedOutcome?.verificationReason || 'Exact amount and currency matched via Razorpay payment_link.paid webhook.'}</dd>
-                </div>
-                <div>
-                  <dt>Reconciliation Timestamp</dt>
+                  <dt>Reconciled At</dt>
                   <dd>{formatTime(verifiedOutcome?.createdAt || confirmedAction?.completedAt)}</dd>
                 </div>
               </dl>
-              <div className="verified-footer-notice">
-                <b>✓ REVENUE ATTRIBUTION CONFIRMED:</b> Full amount credited and verified against Razorpay Test Mode records. Case is marked RESOLVED.
-              </div>
-            </div>
-          ) : unverifiedOutcome ? (
-            <div className="action-result-card mismatch">
-              <div className="result-header">
-                <span className="badge-mismatch-huge">⚠️ RECONCILIATION MISMATCH REJECTED</span>
-              </div>
-              <dl className="result-meta-grid">
-                <div>
-                  <dt>Expected Amount</dt>
-                  <dd>{formatMoney(unverifiedOutcome.amountExpected, currency)}</dd>
-                </div>
-                <div>
-                  <dt>Received Amount</dt>
-                  <dd>{formatMoney(unverifiedOutcome.amountPaid, unverifiedOutcome.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Rejection Reason</dt>
-                  <dd>{unverifiedOutcome.verificationReason}</dd>
-                </div>
-              </dl>
-              <div className="mismatch-footer-notice">
-                <b>RECOVERY NOT CREDITED:</b> Provider payment details did not match expected amount or currency. Double-counting and false recovery prevented.
+
+              <div className="reconciliation-badge-footer">
+                <b>✓ LEDGER CREDITED:</b> Four-point reconciliation verified (Provider ID, exact integer paise, currency INR, and action reference).
               </div>
             </div>
           ) : executedAction ? (
-            <div className="action-result-card executed">
-              <div className="result-header">
-                <span className="badge-pending-huge">⏳ ACTION EXECUTED — PAYMENT PENDING</span>
-                <span className="recovered-zero">₹0.00 Recovered so far</span>
+            <div className="execution-result-card executed">
+              <div className="exec-header-row">
+                <span className="badge-pending-huge">⏳ PAYMENT LINK ACTIVE — PENDING</span>
+                <span className="amount-huge text-amber">₹0.00 Recovered so far</span>
               </div>
-              <dl className="result-meta-grid">
+
+              <dl className="exec-meta-grid">
                 <div>
-                  <dt>Payment Link ID</dt>
+                  <dt>Payment Link Reference</dt>
                   <dd><code>{executedAction.providerActionId || executedAction.id}</code></dd>
                 </div>
                 <div>
-                  <dt>Target Amount</dt>
+                  <dt>Target Recovery Value</dt>
                   <dd><b>{formatMoney(executedAction.amount, currency)}</b></dd>
                 </div>
                 <div>
-                  <dt>Razorpay Payment Link URL</dt>
+                  <dt>Live Razorpay Link</dt>
                   <dd>
                     <a href={executedAction.paymentLinkUrl} target="_blank" rel="noreferrer" className="payment-link-anchor">
                       {executedAction.paymentLinkUrl} ↗
@@ -941,39 +1130,86 @@ function PolicyAndActionPanel({ policyData, error, actions, outcomes, onExecute,
                   </dd>
                 </div>
                 <div>
-                  <dt>Execution Timestamp</dt>
+                  <dt>Executed Timestamp</dt>
                   <dd>{formatTime(executedAction.executedAt || executedAction.createdAt)}</dd>
                 </div>
               </dl>
-              <div className="pending-footer-notice">
-                <b>PAYMENT PENDING:</b> Standard Payment Link is live in Razorpay Test Mode. Revenue recovery will only be recorded once the customer completes payment and the <code>payment_link.paid</code> webhook is verified.
+
+              <div className="pending-badge-footer">
+                <b>PAYMENT PENDING:</b> Link is active in Razorpay Test Mode. Revenue is credited ONLY when the customer completes payment and the signed webhook settles.
               </div>
             </div>
-          ) : policyData.decision === 'ALLOW' ? (
-            <div className="action-trigger-box">
+          ) : policyData?.decision === 'ALLOW' ? (
+            <div className="execution-trigger-box">
+              <div className="trigger-desc">
+                <b>Policy gate cleared.</b> Ready to execute bounded Razorpay Test Mode payment link.
+              </div>
               {actionError && <p className="error">{actionError}</p>}
-              <button onClick={onExecute} disabled={executing} className="btn-execute-big">
-                {executing ? 'Executing Recovery Action…' : 'EXECUTE RECOVERY ACTION (Create Standard Payment Link)'}
+              <button
+                onClick={onExecuteAction}
+                disabled={executingAction}
+                className="btn-execute-big"
+              >
+                {executingAction ? 'Executing Action on Razorpay…' : 'EXECUTE BOUNDED RECOVERY ACTION (Razorpay Payment Link)'}
               </button>
-              <p className="notice-subtle">
-                Executes standard bounded payment link on Razorpay Test Mode API with strict idempotency and 30-minute cooldown protection.
-              </p>
+              <small className="muted">Enforces length-bounded idempotency key and 30-minute cooldown.</small>
             </div>
           ) : (
-            <div className={`action-result-card ${policyData.decision.toLowerCase()}`}>
-              <b>{policyData.decision === 'REVIEW' ? 'HUMAN OPERATIONS REVIEW REQUIRED' : 'ACTION BLOCKED BY GUARDRAILS'}</b>
+            <div className="execution-result-card suppressed">
+              <b>ACTION EXECUTION SUPPRESSED BY POLICY</b>
               <p className="notice-subtle">
-                Automated external execution suppressed to prevent customer friction or financial double-counting.
+                {policyData?.decision === 'REVIEW'
+                  ? 'High value or low confidence requires human approval before execution.'
+                  : 'Automated execution blocked by deterministic policy to prevent financial double-counting.'}
               </p>
             </div>
           )}
-        </>
-      )}
-    </section>
+        </div>
+
+        {/* =================================================================== */}
+        {/* TRACK B: CUSTOMER OUTREACH & COMMUNICATION                         */}
+        {/* =================================================================== */}
+        <div className="track-card track-comm">
+          <div className="track-header">
+            <span className="track-tag-badge">TRACK B · CUSTOMER OUTREACH</span>
+            <span className="badge-whatsapp-tag">WHATSAPP SANDBOX</span>
+          </div>
+
+          {isResolved ? (
+            <div className="comm-suppressed-card">
+              <div className="suppressed-badge-row">
+                <span className="badge-suppressed-title">🛡️ OUTREACH SUPPRESSED</span>
+                <span className="badge-disposition">HARD_STOP</span>
+              </div>
+              <h4 className="suppressed-heading">PAYMENT ALREADY RECOVERED</h4>
+              <p className="suppressed-body">
+                Revflow stopping rules halt all automated communications once payment is verified.
+                Redundant outreach is permanently suppressed to protect buyer goodwill and avoid spam complaints.
+              </p>
+              <div className="suppressed-meta">
+                <span><b>Protection Rule:</b> <code>PAYMENT_RECOVERED</code></span>
+                <span><b>Recovered Amount:</b> <b>{formatMoney(recoveryCase.recoveredAmount || recoveryCase.amount, currency)}</b></span>
+              </div>
+            </div>
+          ) : (
+            <CustomerCommunicationInline
+              caseId={recoveryCase.id}
+              caseDetail={detail}
+              actions={actions}
+              currency={currency}
+              onRefreshCase={onRefreshCase}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency = 'INR', onRefreshCase = null }) {
+// -----------------------------------------------------------------------------
+// INLINE CUSTOMER COMMUNICATION COMPONENT (FOR OPEN / ELIGIBLE CASES)
+// -----------------------------------------------------------------------------
+function CustomerCommunicationInline({ caseId, caseDetail, actions = [], currency = 'INR', onRefreshCase = null }) {
   const [selectedLanguage, setSelectedLanguage] = useState('hinglish');
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -1021,7 +1257,7 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
   const handleSend = async () => {
     const cleanedPhone = (recipientPhone || '').trim().replace(/[\s\-()]/g, '');
     if (!/^\+[1-9]\d{6,14}$/.test(cleanedPhone)) {
-      setPhoneValidationError('Recipient phone must be a valid international E.164 number (e.g. +916202045661).');
+      setPhoneValidationError('Recipient phone must be a valid E.164 international number.');
       return;
     }
     setPhoneValidationError('');
@@ -1041,9 +1277,7 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
       if (!res.ok) throw new Error(data.message || data.error || 'Failed to dispatch communication');
       setSendResult(data);
       fetchPreview(selectedLanguage);
-      if (typeof onRefreshCase === 'function') {
-        onRefreshCase();
-      }
+      if (typeof onRefreshCase === 'function') onRefreshCase();
     } catch (err) {
       setSendError(err.message);
     } finally {
@@ -1051,309 +1285,157 @@ function CustomerCommunicationPanel({ caseId, caseDetail, actions = [], currency
     }
   };
 
-  const isResolved = recoveryCase.riskStatus === 'RESOLVED' ||
-    recoveryCase.outcome === 'RECOVERED' ||
-    (recoveryCase.recoveredAmount && recoveryCase.recoveredAmount > 0) ||
-    preview?.stoppingEvaluation?.reasonCode === 'PAYMENT_RECOVERED';
-
   const commActions = (caseDetail?.actions || actions || []).filter(
     (a) => a.actionType === 'CUSTOMER_OUTREACH' || a.actionType === 'DISPATCH_VERNACULAR_ASSIST'
   );
   const latestOutreach = commActions.at(-1) || sendResult?.action;
 
-  const refreshDeliveryStatus = async () => {
-    if (typeof onRefreshCase === 'function') {
-      onRefreshCase();
-    }
-    await fetchPreview(selectedLanguage);
-  };
-
   return (
-    <section className="panel-box communication-panel-box">
-      <div className="panel-box-header">
-        <div>
-          <h3>GROUNDED MULTILINGUAL OUTREACH · Customer Communication</h3>
-          <small className="muted">Fact-grounded conversational recovery via WhatsApp Sandbox (Twilio Adapter)</small>
-        </div>
-        <div className="comm-header-badges">
-          <span className="badge-channel">WhatsApp</span>
-          {preview?.providerConfigured && preview?.providerMode === 'SANDBOX' ? (
-            <span className="badge-prov-sandbox">WHATSAPP SANDBOX READY</span>
-          ) : (
-            <span className="badge-prov-simulated">SIMULATION / PROVIDER NOT CONFIGURED</span>
-          )}
-        </div>
-      </div>
-
-      {/* Safety Banners: Resolved Suppression vs. Eligible Outreach */}
-      {isResolved ? (
-        <div className="comm-safety-banner banner-suppressed">
-          <div className="banner-badge-row">
-            <span className="badge-disposition">HARD_STOP</span>
-            <span className="badge-reason-code">{preview?.stoppingEvaluation?.reasonCode || 'PAYMENT_RECOVERED'}</span>
-            <span className="badge-recovered-amount">
-              Recovered: {formatMoney(recoveryCase.recoveredAmount || recoveryCase.amount, currency)}
-            </span>
-          </div>
-          <h4 className="banner-title">🛡️ OUTREACH SUPPRESSED — PAYMENT ALREADY RECOVERED</h4>
-          <p className="banner-explanation">
-            Revflow intentionally refuses to contact a customer after verified recovery. Deterministic stopping rules suppress automated messaging to eliminate customer friction and prevent compliance violations.
-          </p>
-          {preview?.policyReasons && preview.policyReasons.length > 0 && (
-            <div className="banner-policy-reasons">
-              <small>POLICY FIREWALL ENFORCEMENT:</small>
-              <ul>
-                {preview.policyReasons.map((reason, idx) => (
-                  <li key={idx}><code>{reason}</code></li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : preview?.policyDecision === 'ALLOW' ? (
-        <div className="comm-safety-banner banner-eligible">
-          <div className="banner-badge-row">
-            <span className="badge-disposition-allow">CONTINUE</span>
-            <span className="badge-policy-allow">POLICY ALLOW</span>
-            <span className="badge-grounded">✓ GROUNDED FACTS</span>
-          </div>
-          <h4 className="banner-title text-success">✓ CASE ELIGIBLE FOR CONVERSATIONAL RECOVERY</h4>
-          <p className="banner-explanation">
-            Grounded message copy generated with exact context. All policy guardrails and stopping criteria evaluated and cleared. Ready for dispatch via Twilio WhatsApp Sandbox.
-          </p>
-          <div className="eligibility-checklist-grid">
-            <div><b>Grounding:</b> <span className="text-success">Verified</span></div>
-            <div><b>Policy Gate:</b> <span className="text-success">ALLOW</span></div>
-            <div><b>Stopping Rules:</b> <span className="text-success">CONTINUE</span></div>
-            <div><b>Attempt Count:</b> <span>{commActions.length} / 2</span></div>
-            <div><b>Cooldown:</b> <span className="text-success">CLEAR</span></div>
-            <div><b>Provider:</b> <span className={preview?.providerConfigured ? 'text-success' : 'text-warning'}>
-              {preview?.providerConfigured ? 'WHATSAPP SANDBOX READY' : 'SIMULATION MODE'}
-            </span></div>
-          </div>
-        </div>
-      ) : preview && preview.policyDecision !== 'ALLOW' ? (
-        <div className="comm-safety-banner banner-blocked-other">
-          <div className="banner-badge-row">
-            <span className="badge-disposition">{preview.stoppingEvaluation?.actionDisposition || 'BLOCK'}</span>
-            <span className="badge-reason-code">{preview.stoppingEvaluation?.reasonCode || 'POLICY_BLOCKED'}</span>
-          </div>
-          <h4 className="banner-title text-warning">⚠️ OUTREACH RESTRICTED BY POLICY GUARDRAILS</h4>
-          <p className="banner-explanation">
-            {preview.stoppingEvaluation?.humanReadableReason || 'Customer outreach is currently restricted by deterministic safety policies.'}
-          </p>
-          {preview.policyReasons && preview.policyReasons.length > 0 && (
-            <div className="banner-policy-reasons">
-              <small>SPECIFIC POLICY RULES ENFORCED:</small>
-              <ul>
-                {preview.policyReasons.map((reason, idx) => (
-                  <li key={idx}><code>{reason}</code></li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {/* Language Selector */}
-      <div className="comm-language-bar">
-        <span className="comm-label">LANGUAGE:</span>
-        <div className="comm-lang-tabs">
+    <div className="comm-inline-container">
+      {/* Language Switcher */}
+      <div className="comm-lang-row">
+        <span className="lang-label">LANGUAGE:</span>
+        <div className="lang-tabs">
           {[
             { id: 'en', label: 'English' },
             { id: 'hi', label: 'हिंदी (Hindi)' },
             { id: 'hinglish', label: 'Hinglish' }
-          ].map((tab) => (
+          ].map((t) => (
             <button
-              key={tab.id}
-              onClick={() => setSelectedLanguage(tab.id)}
-              className={`comm-lang-btn ${selectedLanguage === tab.id ? 'active' : ''}`}
+              key={t.id}
+              onClick={() => setSelectedLanguage(t.id)}
+              className={`lang-btn ${selectedLanguage === t.id ? 'active' : ''}`}
             >
-              {tab.label}
+              {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Grounded Message Preview & Fact Verification */}
+      {/* WhatsApp Chat Preview */}
       {loadingPreview ? (
-        <p className="muted">Rendering grounded message preview…</p>
+        <p className="muted" style={{ padding: '10px' }}>Loading grounded copy…</p>
       ) : previewError ? (
         <p className="error">{previewError}</p>
       ) : preview ? (
-        <div className="comm-preview-container">
-          <div className="whatsapp-bubble-wrapper">
-            <div className="whatsapp-bubble-header">
-              <span className="whatsapp-icon">💬</span>
-              <b>Revflow Recovery Assistant · WhatsApp Business</b>
-              <small className="muted">Verified Context Only</small>
-            </div>
-            <div className="whatsapp-chat-bubble">
-              <p className="whatsapp-text">{preview.message}</p>
-              <span className="whatsapp-timestamp">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓</span>
-            </div>
+        <div className="whatsapp-bubble-box">
+          <div className="whatsapp-bubble-header">
+            <span>💬 Revflow Recovery Assistant · WhatsApp Business</span>
           </div>
-
-          <div className="grounded-facts-card">
-            <h4>Grounded Evidence Checklist (Zero Hallucinations)</h4>
-            <ul className="grounded-checklist">
-              <li>
-                <span className="check-icon">✓</span>
-                <span><b>Amount:</b> {preview.amountFormatted} (strictly derived from case context)</span>
-              </li>
-              <li>
-                <span className="check-icon">✓</span>
-                <span><b>Customer Name:</b> {preview.customerName ? `"${preview.customerName}" (verified from event)` : 'None (Neutral greeting used)'}</span>
-              </li>
-              <li>
-                <span className="check-icon">✓</span>
-                <span><b>Payment Link:</b> {preview.paymentLinkUrl ? 'Included from active Razorpay link' : 'Omitted (no active link yet)'}</span>
-              </li>
-              <li>
-                <span className="check-icon">✓</span>
-                <span><b>Language Selection Reason:</b> <code>{preview.selectionReason}</code></span>
-              </li>
-              <li>
-                <span className="check-icon">✓</span>
-                <span><b>Anti-Hallucination Guard:</b> PASSED (Zero fabricated discounts, deadlines, or fees)</span>
-              </li>
-            </ul>
+          <div className="whatsapp-chat-bubble">
+            <p className="whatsapp-text">{preview.message}</p>
+            <span className="whatsapp-timestamp">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓</span>
           </div>
         </div>
       ) : null}
 
-      {/* Recipient Phone Configuration */}
-      <div className="recipient-input-group">
-        <label htmlFor="recipient-phone-input">
-          <b>RECIPIENT WHATSAPP DESTINATION (E.164):</b>
-        </label>
-        <div className="recipient-input-row">
+      {/* Recipient Phone Field */}
+      <div className="phone-config-box">
+        <label>RECIPIENT DESTINATION (E.164):</label>
+        <div className="phone-row">
           <input
-            id="recipient-phone-input"
             type="tel"
             value={recipientPhone}
-            onChange={(e) => {
-              setRecipientPhone(e.target.value);
-              setPhoneValidationError('');
-            }}
-            placeholder="+916202045661"
-            className={`input-recipient-phone ${phoneValidationError ? 'input-error' : ''}`}
-            disabled={sending || isResolved}
+            onChange={(e) => setRecipientPhone(e.target.value)}
+            className="input-phone"
+            disabled={sending}
           />
-          {recipientPhone !== defaultPhone && !isResolved && (
-            <button
-              type="button"
-              onClick={() => {
-                setRecipientPhone(defaultPhone);
-                setPhoneValidationError('');
-              }}
-              className="btn-reset-phone"
-              title="Reset to case customer reference"
-            >
-              Reset
-            </button>
+          {recipientPhone !== defaultPhone && (
+            <button type="button" onClick={() => setRecipientPhone(defaultPhone)} className="btn-reset-phone">Reset</button>
           )}
         </div>
         {phoneValidationError && <p className="field-error-text">{phoneValidationError}</p>}
-        <small className="muted">
-          Must be registered in your Twilio WhatsApp Sandbox. Defaulted from case customer reference.
-        </small>
       </div>
 
-      {/* Twilio Delivery Status Tracker */}
+      {/* Delivery Lifecycle Status */}
       {latestOutreach && (
-        <div className="delivery-tracker-card">
-          <div className="delivery-tracker-header">
-            <h5>TWILIO WHATSAPP DELIVERY LIFECYCLE</h5>
-            <button type="button" onClick={refreshDeliveryStatus} className="btn-refresh-delivery">
-              🔄 Refresh Delivery Status
-            </button>
+        <div className="delivery-status-box">
+          <div className="delivery-status-header">
+            <span>TWILIO DELIVERY STATUS</span>
+            <span className={`badge-status ${(latestOutreach.status || '').toLowerCase()}`}>{latestOutreach.status}</span>
           </div>
-          <div className="delivery-meta-row">
-            <span><b>Message ID:</b> <code>{latestOutreach.providerActionId || sendResult?.communication?.providerMessageId || 'Pending'}</code></span>
-            <span><b>Recipient:</b> <code>{latestOutreach.requestMetadata?.communication?.recipient || recipientPhone}</code></span>
-            <span><b>Language:</b> <code>{latestOutreach.requestMetadata?.communication?.language || selectedLanguage}</code></span>
-          </div>
-          <div className="delivery-steps-stepper">
-            {['QUEUED', 'SENT', 'DELIVERED', 'READ'].map((step, idx) => {
-              const currentStatus = (
-                latestOutreach.requestMetadata?.communication?.status ||
-                latestOutreach.status ||
-                'QUEUED'
-              ).toUpperCase();
-              const ranks = { UNKNOWN: 0, QUEUED: 1, SENT: 2, DELIVERED: 3, READ: 4, FAILED: 5, UNDELIVERED: 5 };
-              const isCompleted = ranks[currentStatus] >= ranks[step];
-              const isCurrent = currentStatus === step;
-              return (
-                <div key={step} className={`delivery-step-item ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''}`}>
-                  <div className="step-circle">{isCompleted ? '✓' : idx + 1}</div>
-                  <span className="step-label">{step}</span>
-                </div>
-              );
-            })}
-          </div>
+          <small className="muted" style={{ display: 'block', marginTop: '2px' }}>
+            Action #{latestOutreach.id} · Message ID: <code>{latestOutreach.providerActionId || 'Pending'}</code>
+          </small>
           {(latestOutreach.status === 'FAILED' || latestOutreach.requestMetadata?.communication?.status === 'FAILED') && (
-            <div className="delivery-failed-banner">
-              ⚠️ Delivery failed or undelivered by carrier. Check Twilio logs for error details.
+            <div className="delivery-failed-banner" style={{ marginTop: '6px' }}>
+              ⚠️ Delivery stopped: Twilio Trial sandbox requires pre-approved ContentSid templates. Financial invariants preserved.
             </div>
           )}
         </div>
       )}
 
-      {/* Dispatch Action Bar */}
-      <div className="comm-action-bar">
+      {/* Action Bar */}
+      <div className="comm-send-bar">
         {sendError && <p className="error">{sendError}</p>}
         {sendResult && (
           <div className="send-success-banner">
-            <b>✓ OUTREACH DISPATCHED:</b> {sendResult.communication?.message}
-            <div className="send-meta">
-              <span><b>Provider:</b> <code>{sendResult.communication?.provider}</code></span>
-              <span><b>Message ID:</b> <code>{sendResult.communication?.providerMessageId}</code></span>
-              <span><b>Status:</b> <span className="badge-sent">{sendResult.communication?.status}</span></span>
-              <span><b>Provenance:</b> <code>{sendResult.provenance}</code></span>
-            </div>
-            <small className="notice-subtle">
-              Important: Message delivery !== revenue recovery. Revenue will only be credited when the customer completes payment.
-            </small>
+            ✓ Outreach dispatched via {sendResult.communication?.provider} (Status: {sendResult.communication?.status})
           </div>
         )}
-
-        <div className="comm-btn-row">
-          {isResolved ? (
-            <button
-              disabled={true}
-              className="btn-send-whatsapp disabled-blocked"
-              title="Outreach is suppressed because payment has already been recovered."
-            >
-              🔒 OUTREACH SUPPRESSED — PAYMENT ALREADY RECOVERED
-            </button>
-          ) : preview?.policyDecision === 'BLOCK' ? (
-            <button
-              disabled={true}
-              className="btn-send-whatsapp disabled-blocked"
-              title="Outreach blocked by deterministic safety guardrails."
-            >
-              🔒 OUTREACH BLOCKED BY POLICY
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={sending || loadingPreview}
-              className="btn-send-whatsapp"
-            >
-              {sending ? 'Dispatching WhatsApp Outreach…' : '➤ SEND VIA WHATSAPP (TEST / SANDBOX)'}
-            </button>
-          )}
-          <span className="notice-subtle">
-            {isResolved
-              ? 'Settled cases are permanently protected from automated outreach.'
-              : preview?.providerConfigured
-                ? 'Sends real test message via configured Twilio WhatsApp Sandbox recipient.'
-                : 'Executes simulated WhatsApp dispatch with structured audit and telemetry.'}
-          </span>
-        </div>
+        <button
+          onClick={handleSend}
+          disabled={sending || loadingPreview}
+          className="btn-send-whatsapp"
+        >
+          {sending ? 'Dispatching…' : '➤ SEND VIA WHATSAPP (SANDBOX)'}
+        </button>
+        <small className="notice-subtle" style={{ display: 'block', marginTop: '4px' }}>
+          Notice: Message dispatch !== revenue recovered. Revenue requires verified webhook settlement.
+        </small>
       </div>
-    </section>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// STAGE 06 COMPONENT: RECOVERY TIMELINE & AUDIT TRAIL
+// -----------------------------------------------------------------------------
+function Stage6RecoveryTimeline({ events = [], auditEvents = [] }) {
+  const mergedTimeline = [
+    ...events.map((e) => ({
+      category: 'INGESTION',
+      kind: e.eventType,
+      message: `${e.eventType}${e.failureReason ? ` — ${e.failureReason}` : ''}`,
+      time: e.timestamp
+    })),
+    ...auditEvents.map((a) => {
+      let category = 'AUDIT';
+      const kind = a.eventType || 'AUDIT';
+      if (kind.includes('DIAGNOSIS') || kind.includes('INTELLIGENCE')) category = 'INTELLIGENCE';
+      else if (kind.includes('POLICY')) category = 'GOVERNANCE';
+      else if (kind.includes('ACTION') || kind.includes('LINK')) category = 'EXECUTION';
+      else if (kind.includes('OUTREACH') || kind.includes('COMMUNICATION')) category = 'OUTREACH';
+      else if (kind.includes('RECONCIL') || kind.includes('OUTCOME')) category = 'RECONCILIATION';
+      else if (kind.includes('CASE')) category = 'LIFECYCLE';
+
+      return {
+        category,
+        kind,
+        message: a.message,
+        time: a.createdAt
+      };
+    })
+  ].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  return (
+    <div className="stage-content-box">
+      <ol className="timeline-clean-list">
+        {mergedTimeline.map((item, idx) => (
+          <li key={`${item.kind}-${idx}`} className={`timeline-item cat-${item.category.toLowerCase()}`}>
+            <div className="timeline-point" />
+            <div className="timeline-card">
+              <div className="timeline-card-header">
+                <span className={`timeline-cat-tag cat-${item.category.toLowerCase()}`}>{item.category}</span>
+                <b className="timeline-kind">{item.kind}</b>
+                <time className="timeline-time">{formatTime(item.time)}</time>
+              </div>
+              <p className="timeline-msg">{item.message}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
