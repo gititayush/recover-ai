@@ -3774,7 +3774,7 @@ function Stage5ExecutionAndReconciliation({
       <div className="track-pane pane-outreach">
         <div className="pane-header-line">
           <span className="pane-tag">TRACK B · CUSTOMER OUTREACH</span>
-          <span className="badge-channel-tag">WHATSAPP SANDBOX</span>
+          <span className="badge-channel-tag badge-sandbox-constrained">WHATSAPP RECOVERY · SANDBOX CONSTRAINED</span>
         </div>
 
         {isResolved ? (
@@ -3915,7 +3915,7 @@ function CustomerCommunicationInline({ caseId, caseDetail, actions = [], currenc
       {/* WhatsApp Message Preview */}
       <div className="whatsapp-preview-box">
         <div className="whatsapp-box-header">
-          <span>💬 WhatsApp Recovery Notification</span>
+          <span>💬 Generated Customer Message</span>
           <span className="bubble-verified">GROUNDED COPY</span>
         </div>
         {loadingPreview ? (
@@ -3924,7 +3924,7 @@ function CustomerCommunicationInline({ caseId, caseDetail, actions = [], currenc
           <div className="whatsapp-message-bubble">
             <p className="bubble-text">{preview.message}</p>
             <span className="bubble-time">
-              {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓
+              {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · Preview only
             </span>
           </div>
         ) : previewError ? (
@@ -3953,42 +3953,44 @@ function CustomerCommunicationInline({ caseId, caseDetail, actions = [], currenc
       {phoneValidationError && <div className="console-error-inline">{phoneValidationError}</div>}
 
       {/* Twilio Delivery Status */}
-      {latestOutreach && (
-        <div className="twilio-delivery-status-card">
-          <div className="delivery-status-top">
-            <span className="status-label">TWILIO DELIVERY STATUS</span>
-            <span className={`badge-delivery ${(latestOutreach.status || '').toLowerCase()}`}>
-              {latestOutreach.status}
-            </span>
-          </div>
-          <div className="delivery-meta-sub">
-            Action #{latestOutreach.id} · Message ID: <code>{latestOutreach.providerActionId || 'Pending'}</code>
-          </div>
-          {(latestOutreach.status === 'FAILED' || latestOutreach.requestMetadata?.communication?.status === 'FAILED') && (
-            <div className="twilio-carrier-notice">
-              ⚠️ Delivery stopped: Twilio Trial sandbox requires pre-approved ContentSid templates. Financial invariants preserved.
-            </div>
-          )}
+      <div className="twilio-delivery-status-card">
+        <div className="delivery-status-top">
+          <span className="status-label">DELIVERY STATUS</span>
+          <span className="badge-delivery sandbox-constrained">
+            SANDBOX CONSTRAINED / NOT DELIVERED
+          </span>
         </div>
-      )}
+        <div className="delivery-meta-sub">
+          {latestOutreach ? `Action #${latestOutreach.id} · ` : ''}Provider: Twilio WhatsApp Sandbox · Carrier Status: <code>{latestOutreach?.status || 'NOT_DELIVERED'}</code>
+        </div>
+        <div className="twilio-carrier-notice">
+          <b>Reason:</b> Twilio trial sandbox requires a pre-approved ContentSid template. Unapproved customer messaging is prevented. Financial invariants and recovery ledger remain 100% intact.
+        </div>
+      </div>
 
       {/* Send Dispatch Bar */}
       <div className="outreach-action-row">
         {sendError && <div className="console-error-inline">{sendError}</div>}
         {sendResult && (
-          <div className="send-success-alert">
-            ✓ Dispatched via {sendResult.communication?.provider} ({sendResult.communication?.status})
-          </div>
+          sendResult.action?.status === 'FAILED' || sendResult.communication?.status === 'FAILED' ? (
+            <div className="send-constrained-alert">
+              ⚠️ Provider Constraint Recorded: Twilio trial sandbox requires pre-approved ContentSid template (Error 21654). Message not delivered.
+            </div>
+          ) : (
+            <div className="send-success-alert">
+              ✓ Dispatched via {sendResult.communication?.provider} ({sendResult.communication?.status})
+            </div>
+          )
         )}
         <button
           onClick={handleSend}
           disabled={sending || loadingPreview}
           className="btn-send-whatsapp-sandbox"
         >
-          {sending ? 'Dispatching…' : '➤ SEND VIA WHATSAPP (SANDBOX)'}
+          {sending ? 'Testing Sandbox Dispatch…' : '🧪 TEST SANDBOX DISPATCH (CONSTRAINED)'}
         </button>
         <div className="outreach-disclaimer-sub">
-          Notice: Message dispatch !== revenue recovered. Settlement requires verified webhook.
+          Notice: Outreach dispatch !== revenue recovered. Twilio trial sandbox enforces template restrictions.
         </div>
       </div>
     </div>
