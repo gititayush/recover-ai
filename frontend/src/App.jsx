@@ -1450,6 +1450,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, cases, onSele
     { id: 'strategies', title: 'Go to Strategy Catalog & ERV', icon: '⚡', view: 'strategies' },
     { id: 'playbooks', title: 'Go to Playbooks & Benchmark', icon: '📖', view: 'playbooks' },
     { id: 'audit', title: 'Go to Operational Audit Trail', icon: '🔍', view: 'audit' },
+    { id: 'lab', title: 'Open Recovery Lab (Demo Scenarios)', icon: '🧪', view: 'lab' },
     { id: 'settings', title: 'Go to System Settings', icon: '⚙️', view: 'settings' }
   ].filter((item) => !q || item.title.toLowerCase().includes(q));
 
@@ -2003,6 +2004,15 @@ export default function App() {
             <span className="nav-text">Operational Audit</span>
           </button>
 
+          <button
+            className={`nav-link ${currentView === 'lab' ? 'active' : ''}`}
+            onClick={() => setCurrentView('lab')}
+          >
+            <span className="nav-icon">🧪</span>
+            <span className="nav-text">Recovery Lab</span>
+            <span className="nav-badge-demo">DEMO</span>
+          </button>
+
           <div className="nav-group-label">SYSTEM</div>
 
           <button
@@ -2175,6 +2185,10 @@ export default function App() {
             />
           )}
 
+          {currentView === 'lab' && (
+            <RecoveryLabView />
+          )}
+
           {currentView === 'case_detail' && (
             <div className="case-detail-wrapper">
               {!selectedCase ? (
@@ -2222,6 +2236,614 @@ export default function App() {
 
       {/* Toast Notification */}
       <ToastNotification message={toast} />
+    </div>
+  );
+}
+
+
+// =============================================================================
+// RECOVERY LAB VIEW
+// Isolated scenario runner — zero production side effects.
+// All execution is ephemeral (InMemoryRecoveryRepository).
+// =============================================================================
+
+const LAB_SCENARIO_META = {
+  BANK_SWITCH_TIMEOUT: {
+    icon: '🕐',
+    headline: 'Issuer Bank Switch Timeout',
+    behavior: 'Smart Retry → ALLOW',
+    behaviorClass: 'lab-behavior-allow',
+    description: 'Transient switch timeout during high-volume bank processing. Engine sequences a quiet retry window and allows execution.'
+  },
+  INSUFFICIENT_FUNDS: {
+    icon: '💳',
+    headline: 'Account Insufficient Funds',
+    behavior: 'Delayed Smart Retry → ALLOW',
+    behaviorClass: 'lab-behavior-allow',
+    description: 'Auto-debit declined due to insufficient balance. Engine calculates a 48-hour replenishment backoff — no immediate action.'
+  },
+  GATEWAY_TECHNICAL_FAILURE: {
+    icon: '⚡',
+    headline: 'Payment Gateway Technical Failure',
+    behavior: 'Alternate Payment Link → ALLOW',
+    behaviorClass: 'lab-behavior-allow',
+    description: 'Intermittent gateway error with strong provider evidence. Engine routes to alternative payment instrument for immediate conversion.'
+  },
+  UNKNOWN_FAILURE: {
+    icon: '⚠️',
+    headline: 'Generic Unknown Failure',
+    behavior: 'Conservative Abstention → REVIEW',
+    behaviorClass: 'lab-behavior-review',
+    description: 'Provider reported failure without technical telemetry. Engine caps confidence ≤ 35%, refuses to act autonomously, flags for review.'
+  },
+  ALREADY_RECOVERED: {
+    icon: '🛑',
+    headline: 'Already Recovered / Terminal Guard',
+    behavior: 'Hard Stop → NO_ACTION',
+    behaviorClass: 'lab-behavior-stop',
+    description: 'Payment was previously settled. Stopping engine detects terminal state and blocks all duplicate recovery interventions.'
+  }
+};
+
+function LabModeTag({ mode }) {
+  if (!mode) return null;
+  const cls = `badge-mode mode-${(mode || '').toLowerCase().replace(/_/g, '_')}`;
+  const label = mode === 'LIVE_PROVIDER' ? 'LIVE PROVIDER' : mode.replace(/_/g, ' ');
+  return <span className={cls}>{label}</span>;
+}
+
+function LabConfidenceBar({ value }) {
+  const pct = Math.round((value || 0) * 100);
+  const cls = pct >= 70 ? 'bar-fill-strong' : pct >= 45 ? 'bar-fill-moderate' : 'bar-fill-weak';
+  return (
+    <div className="lab-confidence-wrap">
+      <div className="lab-confidence-bar">
+        <div className={`lab-confidence-fill ${cls}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="lab-confidence-pct">{pct}%</span>
+    </div>
+  );
+}
+
+function LabDecisionBadge({ decision }) {
+  if (!decision) return null;
+  const map = {
+    ALLOW: 'lab-decision-allow',
+    BLOCK: 'lab-decision-block',
+    REVIEW: 'lab-decision-review'
+  };
+  return <span className={`lab-decision-badge ${map[decision] || 'lab-decision-review'}`}>{decision}</span>;
+}
+
+function LabStageHeader({ num, title }) {
+  return (
+    <div className="lab-stage-header">
+      <span className="lab-stage-num">{num}</span>
+      <span className="lab-stage-title">{title}</span>
+    </div>
+  );
+}
+
+function RecoveryLabView() {
+  const [scenarios, setScenarios] = useState([]);
+  const [loadingScenarios, setLoadingScenarios] = useState(true);
+  const [scenarioError, setScenarioError] = useState('');
+
+  const [activeScenarioId, setActiveScenarioId] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [runError, setRunError] = useState('');
+  const [traceExpanded, setTraceExpanded] = useState(false);
+
+  useEffect(() => {
+    setLoadingScenarios(true);
+    fetch('/api/recovery/lab/scenarios')
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data) => {
+        setScenarios(Array.isArray(data.scenarios) ? data.scenarios : Array.isArray(data) ? data : []);
+        setLoadingScenarios(false);
+      })
+      .catch((err) => {
+        setScenarioError(`Could not load scenarios: ${err.message}`);
+        setLoadingScenarios(false);
+      });
+  }, []);
+
+  async function runScenario(scenarioId) {
+    if (running) return;
+    setRunning(true);
+    setActiveScenarioId(scenarioId);
+    setResult(null);
+    setRunError('');
+    setTraceExpanded(false);
+    try {
+      const r = await fetch('/api/recovery/lab/run-scenario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenarioId })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+      setResult(data);
+    } catch (err) {
+      setRunError(`Scenario run failed: ${err.message}`);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function resetLab() {
+    setResult(null);
+    setRunError('');
+    setActiveScenarioId(null);
+    setTraceExpanded(false);
+  }
+
+  const isUnknown = result?.scenario?.id === 'UNKNOWN_FAILURE';
+  const isAlreadyRecovered = result?.scenario?.id === 'ALREADY_RECOVERED';
+
+  return (
+    <div className="lab-view">
+
+      {/* ── Header ── */}
+      <div className="lab-header">
+        <div className="lab-header-top">
+          <div className="lab-header-identity">
+            <span className="lab-icon">🧪</span>
+            <div>
+              <h2 className="lab-title">Recovery Lab</h2>
+              <p className="lab-subtitle">
+                Evaluate the complete recovery decision pipeline across canonical failure scenarios.
+                All runs are ephemeral and isolated — no production data is read or written.
+              </p>
+            </div>
+          </div>
+          <div className="lab-status-tags">
+            <span className="lab-tag-demo">DEMO / SIMULATION</span>
+            <span className="lab-tag-safe">✅ NO PRODUCTION SIDE EFFECTS</span>
+          </div>
+        </div>
+        <div className="lab-provenance-bar">
+          <span className="lab-prov-item">🔒 Ephemeral in-memory store</span>
+          <span className="lab-prov-dot">·</span>
+          <span className="lab-prov-item">No PostgreSQL mutations</span>
+          <span className="lab-prov-dot">·</span>
+          <span className="lab-prov-item">No live Razorpay API calls</span>
+          <span className="lab-prov-dot">·</span>
+          <span className="lab-prov-item">No WhatsApp messages</span>
+        </div>
+      </div>
+
+      {/* ── Scenario Selector ── */}
+      <section className="lab-section">
+        <div className="lab-section-label">SELECT SCENARIO</div>
+        {loadingScenarios && <div className="lab-loading">Loading scenarios…</div>}
+        {scenarioError && <div className="lab-error-msg">{scenarioError}</div>}
+        {!loadingScenarios && !scenarioError && (
+          <div className="lab-scenario-grid">
+            {(scenarios.length > 0 ? scenarios : Object.keys(LAB_SCENARIO_META)).map((s) => {
+              const id = typeof s === 'string' ? s : s.id;
+              const meta = LAB_SCENARIO_META[id] || {};
+              const amountPaise = typeof s === 'object' ? s.sampleAmountPaise : null;
+              const isActive = activeScenarioId === id;
+              const isThisRunning = running && isActive;
+              return (
+                <div
+                  key={id}
+                  className={`lab-scenario-card ${isActive ? 'lab-scenario-active' : ''} ${isThisRunning ? 'lab-scenario-running' : ''}`}
+                >
+                  <div className="lab-scenario-card-header">
+                    <span className="lab-scenario-icon">{meta.icon || '📋'}</span>
+                    <span className={`lab-scenario-behavior ${meta.behaviorClass || ''}`}>{meta.behavior || id}</span>
+                  </div>
+                  <div className="lab-scenario-name">{meta.headline || id.replace(/_/g, ' ')}</div>
+                  <div className="lab-scenario-desc">{meta.description || ''}</div>
+                  {amountPaise != null && (
+                    <div className="lab-scenario-amount">{formatMoney(amountPaise)}</div>
+                  )}
+                  <button
+                    className="lab-run-btn"
+                    disabled={running}
+                    onClick={() => runScenario(id)}
+                  >
+                    {isThisRunning ? '⏳ Running…' : isActive && result ? '↺ Re-run' : '▶ Run Scenario'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Run Error ── */}
+      {runError && (
+        <div className="lab-error-msg lab-run-error">
+          {runError}
+          <button className="lab-reset-link" onClick={resetLab}>Clear</button>
+        </div>
+      )}
+
+      {/* ── Running Spinner ── */}
+      {running && !result && (
+        <div className="lab-running-state">
+          <span className="lab-spinner" />
+          <span>Running scenario through decision pipeline…</span>
+        </div>
+      )}
+
+      {/* ── Pipeline Result ── */}
+      {result && (
+        <div className="lab-result">
+
+          {/* Result Header */}
+          <div className="lab-result-header">
+            <div className="lab-result-title-row">
+              <span className="lab-result-scenario-name">{result.scenario?.name || activeScenarioId}</span>
+              <button className="lab-reset-link" onClick={resetLab}>← Reset Lab</button>
+            </div>
+            <div className="lab-result-prov-bar">
+              <span>environment: <b>EPHEMERAL_IN_MEMORY</b></span>
+              <span className="lab-prov-dot">·</span>
+              <span className={result.provenance?.productionMutation ? 'lab-prov-warn' : 'lab-prov-ok'}>
+                {result.provenance?.productionMutation ? '⚠ production mutation!' : '✅ production mutation: none'}
+              </span>
+              <span className="lab-prov-dot">·</span>
+              <span className={result.provenance?.liveFinancialAction ? 'lab-prov-warn' : 'lab-prov-ok'}>
+                {result.provenance?.liveFinancialAction ? '⚠ live financial action!' : '✅ live financial action: none'}
+              </span>
+            </div>
+          </div>
+
+          {/* Special callouts */}
+          {isUnknown && (
+            <div className="lab-callout lab-callout-review">
+              <span className="lab-callout-icon">⚠️</span>
+              <div>
+                <b>Conservative Abstention</b> — Provider supplied insufficient technical telemetry.
+                Revflow caps confidence at ≤&nbsp;35%, refuses autonomous action, and escalates to human review.
+                No reckless recovery was attempted.
+              </div>
+            </div>
+          )}
+          {isAlreadyRecovered && (
+            <div className="lab-callout lab-callout-stop">
+              <span className="lab-callout-icon">🛑</span>
+              <div>
+                <b>Terminal Guard — Hard Stop</b> — Stopping engine detected prior settlement confirmation.
+                All recovery actions were blocked. Duplicate intervention is not possible.
+              </div>
+            </div>
+          )}
+
+          <div className="lab-pipeline">
+
+            {/* Stage 1 — Evidence */}
+            <div className="lab-stage">
+              <LabStageHeader num="①" title="EVIDENCE" />
+              <div className="lab-stage-body">
+                {result.providerEvidence && Object.keys(result.providerEvidence).length > 0 ? (
+                  <div className="lab-evidence-grid">
+                    {Object.entries(result.providerEvidence)
+                      .filter(([, v]) => v != null && v !== '')
+                      .map(([k, v]) => (
+                        <div key={k} className="lab-evidence-row">
+                          <span className="lab-evidence-key">{k}</span>
+                          <span className="lab-evidence-val">{String(v)}</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <span className="lab-muted">No provider evidence fields extracted — minimal telemetry signal.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 2 — Failure Intelligence */}
+            <div className="lab-stage">
+              <LabStageHeader num="②" title="FAILURE INTELLIGENCE" />
+              <div className="lab-stage-body">
+                {result.failureClassification ? (
+                  <>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Failure Family</span>
+                      <span className="lab-intel-val font-mono">{result.failureClassification.family || '—'}</span>
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Type</span>
+                      <span className="lab-intel-val font-mono">{result.failureClassification.type || '—'}</span>
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Confidence</span>
+                      <LabConfidenceBar value={result.failureClassification.confidence} />
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Evidence Source</span>
+                      <div className="lab-intel-val">
+                        {(result.failureClassification.classificationBasis || []).length > 0
+                          ? (result.failureClassification.classificationBasis || []).map((b, i) => (
+                              <span key={i} className="lab-basis-tag">{b}</span>
+                            ))
+                          : <span className="lab-muted">None supplied by provider</span>
+                        }
+                      </div>
+                    </div>
+                    {(result.failureClassification.unknowns || []).length > 0 && (
+                      <div className="lab-intel-row lab-intel-unknowns">
+                        <span className="lab-intel-label">Known Unknowns</span>
+                        <ul className="lab-unknowns-list">
+                          {result.failureClassification.unknowns.map((u, i) => (
+                            <li key={i}>{u}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span className="lab-muted">Classification unavailable.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 3 — Strategy Engine */}
+            <div className="lab-stage">
+              <LabStageHeader num="③" title="STRATEGY ENGINE" />
+              <div className="lab-stage-body">
+                {(result.candidateStrategies || []).length === 0 ? (
+                  <span className="lab-muted">No viable candidates — stopping engine blocked evaluation.</span>
+                ) : (
+                  <div className="lab-candidates">
+                    {result.candidateStrategies.map((c, i) => {
+                      const isTop = i === 0 && result.selectedStrategy?.action === c.action;
+                      return (
+                        <div key={c.action} className={`lab-candidate-row ${isTop ? 'lab-candidate-top' : ''}`}>
+                          <div className="lab-candidate-rank">#{i + 1}</div>
+                          <div className="lab-candidate-info">
+                            <div className="lab-candidate-name">
+                              {isTop && <span className="lab-top-badge">SELECTED</span>}
+                              {c.name || c.action}
+                            </div>
+                            <div className="lab-candidate-meta">
+                              <LabModeTag mode={c.executionMode} />
+                              <span className="lab-cand-erv">ERV {c.estimatedRecoveryValueFormatted || '—'}</span>
+                              {c.estimatedProbability != null && (
+                                <span className="lab-cand-prob">P={Math.round(c.estimatedProbability * 100)}%</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 4 — Policy */}
+            <div className="lab-stage">
+              <LabStageHeader num="④" title="POLICY" />
+              <div className="lab-stage-body">
+                {result.policyEvaluation ? (
+                  <>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Decision</span>
+                      <LabDecisionBadge decision={result.policyEvaluation.decision} />
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Policy Version</span>
+                      <span className="lab-intel-val font-mono">{result.policyEvaluation.policyVersion || '—'}</span>
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Rules</span>
+                      <span className="lab-intel-val">
+                        <span className="lab-rule-pass">{result.policyEvaluation.rulesPassed ?? '—'} passed</span>
+                        {result.policyEvaluation.rulesBlocked > 0 && (
+                          <span className="lab-rule-block">&nbsp;· {result.policyEvaluation.rulesBlocked} blocked</span>
+                        )}
+                        {result.policyEvaluation.rulesReview > 0 && (
+                          <span className="lab-rule-review">&nbsp;· {result.policyEvaluation.rulesReview} review</span>
+                        )}
+                      </span>
+                    </div>
+                    {(result.policyEvaluation.reasons || []).length > 0 && (
+                      <div className="lab-intel-row">
+                        <span className="lab-intel-label">Reasons</span>
+                        <div className="lab-intel-val">
+                          {result.policyEvaluation.reasons.map((r, i) => (
+                            <div key={i} className="lab-reason-item">{r}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span className="lab-muted">Policy evaluation unavailable.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 5 — Stopping Engine */}
+            <div className="lab-stage">
+              <LabStageHeader num="⑤" title="STOPPING ENGINE" />
+              <div className="lab-stage-body">
+                {result.stoppingEvaluation ? (
+                  <>
+                    <div className="lab-intel-row">
+                       <span className="lab-intel-label">Disposition</span>
+                       <span className={`lab-stop-disposition ${
+                         !result.stoppingEvaluation.stopped
+                           ? 'lab-stop-proceed'
+                           : result.stoppingEvaluation.actionDisposition === 'HARD_STOP'
+                           ? 'lab-stop-blocked'
+                           : 'lab-stop-escalate'
+                       }`}>
+                         {!result.stoppingEvaluation.stopped
+                           ? `✅ ${result.stoppingEvaluation.actionDisposition || 'PROCEED'}`
+                           : result.stoppingEvaluation.actionDisposition === 'HARD_STOP'
+                           ? `🛑 HARD STOP — NO ACTION POSSIBLE`
+                           : `⚠️ ${result.stoppingEvaluation.actionDisposition || 'STOPPED'} — Autonomous execution halted`}
+                       </span>
+                     </div>
+                    {result.stoppingEvaluation.reasonCode && (
+                      <div className="lab-intel-row">
+                        <span className="lab-intel-label">Reason Code</span>
+                        <span className="lab-intel-val font-mono">{result.stoppingEvaluation.reasonCode}</span>
+                      </div>
+                    )}
+                    {result.stoppingEvaluation.humanReadableReason && (
+                      <div className="lab-intel-row">
+                        <span className="lab-intel-label">Explanation</span>
+                        <span className="lab-intel-val">{result.stoppingEvaluation.humanReadableReason}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span className="lab-muted">Stopping evaluation unavailable.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 6 — Execution */}
+            <div className="lab-stage">
+              <LabStageHeader num="⑥" title="EXECUTION" />
+              <div className="lab-stage-body">
+                {result.executionResult ? (
+                  <>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Action Taken</span>
+                      <span className="lab-intel-val font-mono">
+                        {result.executionResult.actionType || 'NONE'}
+                      </span>
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Status</span>
+                      <span className={`lab-exec-status ${result.executionResult.executed ? 'lab-exec-done' : 'lab-exec-none'}`}>
+                        {result.executionResult.executed
+                          ? `EXECUTED — simulated_lab (${result.executionResult.actionStatus || 'EXECUTED'})`
+                          : 'NOT EXECUTED'}
+                      </span>
+                    </div>
+                    {result.executionResult.executed && (
+                      <div className="lab-exec-sim-note">
+                        🔒 Simulated execution only — no real Razorpay link was created, no funds moved, no messages sent.
+                      </div>
+                    )}
+                    {result.executionResult.nextRetryAt && (
+                      <div className="lab-intel-row">
+                        <span className="lab-intel-label">Next Retry At</span>
+                        <span className="lab-intel-val font-mono">{formatTime(result.executionResult.nextRetryAt)}</span>
+                      </div>
+                    )}
+                    {result.executionResult.retrySchedule && (
+                      <div className="lab-intel-row">
+                        <span className="lab-intel-label">Retry Schedule</span>
+                        <div className="lab-intel-val">
+                          {Object.entries(result.executionResult.retrySchedule)
+                            .filter(([, v]) => v != null)
+                            .map(([k, v]) => (
+                              <div key={k} className="lab-evidence-row">
+                                <span className="lab-evidence-key">{k}</span>
+                                <span className="lab-evidence-val">{String(v)}</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Autonomy Status</span>
+                      <span className="lab-intel-val font-mono">{result.executionResult.caseAutonomyStatus || '—'}</span>
+                    </div>
+                  </>
+                ) : (
+                  <span className="lab-muted">No execution occurred — policy blocked or stopping engine halted.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 7 — Outcome */}
+            <div className="lab-stage">
+              <LabStageHeader num="⑦" title="OUTCOME" />
+              <div className="lab-stage-body">
+                {result.finalCaseState ? (
+                  <>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Risk Status</span>
+                      <span className="lab-intel-val font-mono">{result.finalCaseState.riskStatus || '—'}</span>
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Autonomy Status</span>
+                      <span className="lab-intel-val font-mono">{result.finalCaseState.autonomyStatus || '—'}</span>
+                    </div>
+                    <div className="lab-intel-row">
+                      <span className="lab-intel-label">Outcome</span>
+                      <span className="lab-intel-val font-mono">{result.finalCaseState.outcome || 'PENDING'}</span>
+                    </div>
+                    {result.finalCaseState.recoveredAmountPaise > 0 && (
+                      <div className="lab-intel-row">
+                        <span className="lab-intel-label">Simulated Recovery</span>
+                        <span className="lab-intel-val">{formatMoney(result.finalCaseState.recoveredAmountPaise)}</span>
+                      </div>
+                    )}
+                    <div className="lab-outcome-note">
+                      Simulated outcome only — no production revenue metrics were modified.
+                    </div>
+                  </>
+                ) : (
+                  <span className="lab-muted">Final case state unavailable.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Stage 8 — Learning / Provenance */}
+            <div className="lab-stage">
+              <LabStageHeader num="⑧" title="LEARNING / PROVENANCE" />
+              <div className="lab-stage-body">
+                <div className="lab-learning-note">
+                  <p>
+                    The Adaptive Learning Engine operates on <b>production verified outcomes only</b>.
+                    Lab runs are ephemeral and are <b>never attributed</b> to the production learning model.
+                    The production model remains at its current state regardless of Lab activity.
+                  </p>
+                  <p>
+                    Strategy probabilities shown here reflect the
+                    {' '}<b>cold-start heuristic priors</b> (provenance: <code>COLD_START_HEURISTIC</code>),
+                    which are authoritative until ≥&nbsp;5 verified production outcomes exist per pair.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+          </div>{/* end .lab-pipeline */}
+
+          {/* Stage 9 — Decision Trace (expandable) */}
+          <div className="lab-trace-section">
+            <button
+              className="lab-trace-toggle"
+              onClick={() => setTraceExpanded((v) => !v)}
+            >
+              <span>{traceExpanded ? '▾' : '▸'}</span>
+              <span>DECISION TRACE</span>
+              <span className="lab-trace-count">{(result.decisionTrace || []).length} events</span>
+            </button>
+            {traceExpanded && (
+              <div className="lab-trace-list">
+                {(result.decisionTrace || []).length === 0 ? (
+                  <span className="lab-muted">No trace events recorded.</span>
+                ) : (
+                  result.decisionTrace.map((t, i) => (
+                    <div key={i} className="lab-trace-row">
+                      <span className="lab-trace-type">{t.type || 'EVENT'}</span>
+                      <span className="lab-trace-msg">{t.message || ''}</span>
+                      <span className="lab-trace-time">{t.timestamp ? formatTime(t.timestamp) : ''}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}{/* end result */}
+
     </div>
   );
 }
