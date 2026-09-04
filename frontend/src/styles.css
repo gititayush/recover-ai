@@ -739,6 +739,62 @@ code { font-family: var(--font-mono); }
   color: var(--text-secondary);
 }
 
+/* Secondary Settlement Timing Analysis */
+.settlement-timing-panel {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.timing-panel-header {
+  margin-bottom: 8px;
+}
+
+.timing-panel-title {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.timing-sub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.timing-sub-cell {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timing-sub-k {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+}
+
+.timing-sub-v {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.timing-sub-label {
+  font-size: 0.64rem;
+  color: var(--text-muted);
+}
+
 .card-footer-banner {
   margin-top: auto;
   background: var(--bg-surface-raised);

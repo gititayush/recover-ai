@@ -371,39 +371,64 @@ export function OverviewView({ metrics, analytics, cases, onSelectCase, onNaviga
 
       {/* Operations Grid: Velocity & Funnel */}
       <div className="overview-grid-two">
-        {/* Recovery Velocity Card */}
+        {/* Recovery Outcomes & Settlement Verification Card */}
         <section className="dashboard-card">
           <div className="card-header-line">
             <div>
               <span className="card-eyebrow">EFFICIENCY METRICS</span>
-              <h3 className="card-heading">Recovery Velocity & Settlement Latency</h3>
+              <h3 className="card-heading">Recovery Outcomes & Settlement Verification</h3>
             </div>
             <span className="badge-pill pill-neutral">{velocity.sampleSize} VERIFIED SETTLEMENTS</span>
           </div>
           <p className="card-caption">
-            Measured from failure webhook detection to verified payment confirmation on the Razorpay ledger.
+            End-to-end settlement timing is measured from failure detection to verified payment confirmation on the Razorpay ledger.
           </p>
 
+          {/* Primary Visual Outcome KPIs */}
           <div className="velocity-metrics-grid">
             <div className="velocity-cell">
-              <span className="velocity-k">AVERAGE RECOVERY TIME</span>
-              <span className="velocity-v font-bold">{velocity.averageTimeToRecoveryFormatted || '157m 45s'}</span>
-              <span className="velocity-sub">Across verified cases</span>
+              <span className="velocity-k">RECOVERED REVENUE</span>
+              <span className="velocity-v text-emerald font-bold">{formatMoney(recovered)}</span>
+              <span className="velocity-sub">Authoritative ledger credited</span>
             </div>
             <div className="velocity-cell">
-              <span className="velocity-k">MEDIAN TIME TO RECOVERY</span>
-              <span className="velocity-v font-bold">{velocity.medianTimeToRecoveryFormatted || '169m 59s'}</span>
-              <span className="velocity-sub">Robust 50th percentile</span>
+              <span className="velocity-k">RECOVERY RATE</span>
+              <span className="velocity-v text-slate font-bold">{ratePct}%</span>
+              <span className="velocity-sub">Lifetime recovery conversion</span>
             </div>
             <div className="velocity-cell">
-              <span className="velocity-k">FASTEST RECOVERY</span>
-              <span className="velocity-v text-emerald font-bold">{velocity.fastestRecoveryFormatted || '103m 43s'}</span>
-              <span className="velocity-sub">Minimum duration</span>
+              <span className="velocity-k">VERIFIED SETTLEMENTS</span>
+              <span className="velocity-v text-emerald font-bold">{resolvedCases.length}</span>
+              <span className="velocity-sub">Reconciled via webhook</span>
             </div>
             <div className="velocity-cell">
-              <span className="velocity-k">PAYMENT LINK RECOVERY</span>
+              <span className="velocity-k">PROVIDER EXECUTION TIME</span>
               <span className="velocity-v text-blue font-bold">1m 53s</span>
-              <span className="velocity-sub">Provider execution time</span>
+              <span className="velocity-sub">Payment link dispatch duration</span>
+            </div>
+          </div>
+
+          {/* Secondary Timing Analysis */}
+          <div className="settlement-timing-panel">
+            <div className="timing-panel-header">
+              <span className="timing-panel-title">SETTLEMENT TIMING ANALYSIS (END-TO-END BUYER CONVERSION)</span>
+            </div>
+            <div className="timing-sub-grid">
+              <div className="timing-sub-cell">
+                <span className="timing-sub-k">AVERAGE RECOVERY TIME</span>
+                <span className="timing-sub-v font-bold">{velocity.averageTimeToRecoveryFormatted || '157m 45s'}</span>
+                <span className="timing-sub-label">Across verified cases</span>
+              </div>
+              <div className="timing-sub-cell">
+                <span className="timing-sub-k">MEDIAN TIME TO RECOVERY</span>
+                <span className="timing-sub-v font-bold">{velocity.medianTimeToRecoveryFormatted || '169m 59s'}</span>
+                <span className="timing-sub-label">Robust 50th percentile</span>
+              </div>
+              <div className="timing-sub-cell">
+                <span className="timing-sub-k">FASTEST RECOVERY</span>
+                <span className="timing-sub-v font-bold">{velocity.fastestRecoveryFormatted || '103m 43s'}</span>
+                <span className="timing-sub-label">Minimum buyer conversion</span>
+              </div>
             </div>
           </div>
 
